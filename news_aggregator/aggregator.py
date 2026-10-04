@@ -201,8 +201,17 @@ def fetch_all(feeds: Iterable[Feed], max_workers: int = 8) -> list[Article]:
     feeds = list(feeds)
     if not feeds:
         return []
+    results: list[list[Article]] = []
     with ThreadPoolExecutor(max_workers=min(max_workers, len(feeds))) as pool:
-        results = pool.map(fetch_feed, feeds)
+        futures = [pool.submit(fetch_feed, feed) for feed in feeds]
+        for future in futures:
+            try:
+                result = future.result()
+            except Exception:  # noqa: BLE001 - one bad feed must not break the digest
+                feed = next(feed for feed, task in zip(feeds, futures) if task is future)
+                log.exception("Failed to fetch feed %s (%s)", feed.name, feed.url)
+                continue
+            results.append(result or [])
     return [article for articles in results for article in articles]
 
 
