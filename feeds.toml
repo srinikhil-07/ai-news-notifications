@@ -1,0 +1,51 @@
+# AI news sources from tech company blogs.
+#
+# Each [[feeds]] entry needs a `name` and an RSS/Atom `url`.
+# Set `ai_only = false` for general-purpose blogs so that only posts matching
+# AI-related keywords are included in the digest.
+
+[[feeds]]
+name = "OpenAI"
+url = "https://openai.com/news/rss.xml"
+
+[[feeds]]
+name = "Google DeepMind"
+url = "https://deepmind.google/blog/rss.xml"
+
+[[feeds]]
+name = "Google Research"
+url = "https://research.google/blog/rss/"
+
+[[feeds]]
+name = "Google AI (The Keyword)"
+url = "https://blog.google/technology/ai/rss/"
+
+[[feeds]]
+name = "Microsoft Research"
+url = "https://www.microsoft.com/en-us/research/feed/"
+ai_only = false
+
+[[feeds]]
+name = "Meta Engineering (ML)"
+url = "https://engineering.fb.com/category/ml-applications/feed/"
+
+[[feeds]]
+name = "NVIDIA Technical Blog"
+url = "https://developer.nvidia.com/blog/feed"
+ai_only = false
+
+[[feeds]]
+name = "AWS Machine Learning"
+url = "https://aws.amazon.com/blogs/machine-learning/feed/"
+
+[[feeds]]
+name = "Apple Machine Learning Research"
+url = "https://machinelearning.apple.com/rss.xml"
+
+[[feeds]]
+name = "Hugging Face"
+url = "https://huggingface.co/blog/feed.xml"
+
+[[feeds]]
+name = "GitHub Blog (AI & ML)"
+url = "https://github.blog/ai-and-ml/feed/"

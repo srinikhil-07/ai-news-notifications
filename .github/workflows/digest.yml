@@ -1,0 +1,82 @@
+name: AI News Digest
+
+on:
+  schedule:
+    - cron: "0 7 * * *"   # daily digest, 07:00 UTC
+    - cron: "30 7 * * 1"  # weekly digest, Mondays 07:30 UTC
+  workflow_dispatch:
+    inputs:
+      period:
+        description: Digest period
+        type: choice
+        options: [daily, weekly]
+        default: daily
+
+concurrency:
+  group: ai-news-digest
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  issues: write
+
+jobs:
+  digest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Determine period
+        id: period
+        env:
+          EVENT_SCHEDULE: ${{ github.event.schedule }}
+          INPUT_PERIOD: ${{ inputs.period }}
+        run: |
+          if [ "$EVENT_SCHEDULE" = "30 7 * * 1" ]; then
+            period=weekly
+          elif [ "$INPUT_PERIOD" = "weekly" ]; then
+            period=weekly
+          else
+            period=daily
+          fi
+          echo "value=$period" >> "$GITHUB_OUTPUT"
+
+      - name: Build digest
+        id: build
+        run: python -m news_aggregator --period "${{ steps.period.outputs.value }}" --output-dir digests
+
+      - name: Commit digest
+        env:
+          DIGEST_PATH: ${{ steps.build.outputs.digest_path }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$DIGEST_PATH"
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+            exit 0
+          fi
+          git commit -m "Add AI news digest: $DIGEST_PATH"
+          git pull --rebase
+          git push
+
+      - name: Open notification issue
+        if: steps.build.outputs.article_count != '0'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DIGEST_PATH: ${{ steps.build.outputs.digest_path }}
+          PERIOD: ${{ steps.period.outputs.value }}
+        run: |
+          title="$(head -n 1 "$DIGEST_PATH" | sed 's/^# //') — $(basename "$DIGEST_PATH" .md)"
+          # GitHub issue bodies are limited to 65536 characters.
+          head -c 60000 "$DIGEST_PATH" > body.md
+          gh label create ai-news --color 1D76DB --description "AI news digests" 2>/dev/null || true
+          gh issue create --title "$title" --body-file body.md --label ai-news

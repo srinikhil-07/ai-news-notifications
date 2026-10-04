@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>Example AI Blog</title>
+    <link>https://example.com/blog</link>
+    <description>Example</description>
+    <item>
+      <title>Introducing a new large language model</title>
+      <link>https://example.com/blog/new-llm</link>
+      <pubDate>Sat, 03 Oct 2026 12:00:00 GMT</pubDate>
+      <description>&lt;p&gt;Our &lt;b&gt;LLM&lt;/b&gt; is faster &amp;amp; smarter.&lt;/p&gt;</description>
+    </item>
+    <item>
+      <title>Scaling our database fleet</title>
+      <link>https://example.com/blog/databases</link>
+      <pubDate>Wed, 30 Sep 2026 09:00:00 GMT</pubDate>
+      <description>Notes on storage engines.</description>
+    </item>
+    <item>
+      <title>Agentic workflows for developers</title>
+      <link>https://example.com/blog/agents</link>
+      <pubDate>Mon, 28 Sep 2026 09:00:00 GMT</pubDate>
+      <description>How agents help.</description>
+    </item>
+    <item>
+      <title>Old machine learning post</title>
+      <link>https://example.com/blog/old</link>
+      <pubDate>Mon, 01 Jun 2026 09:00:00 GMT</pubDate>
+      <description>Ancient history.</description>
+    </item>
+    <item>
+      <title>Post without a date</title>
+      <link>https://example.com/blog/undated</link>
+    </item>
+  </channel>
+</rss>
