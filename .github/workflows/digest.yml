@@ -1,0 +1,84 @@
+name: AI News Digest
+
+# GitHub cron only supports UTC, so this runs hourly and the aggregator decides
+# what is due in the DIGEST_TIMEZONE repository variable (default UTC):
+#   - daily digest (previous 24 hours) every day at 08:00 local time
+#   - weekly digest (previous 7 days) every Sunday at 08:00 local time
+# Each digest with new posts is opened as a GitHub issue assigned to the repo
+# owner, which triggers a GitHub email notification.
+# Delivered digests are committed under digests/, which marks them as sent so
+# each digest goes out exactly once even if a run is delayed or retried.
+on:
+  schedule:
+    - cron: "5 * * * *"
+  workflow_dispatch:
+    inputs:
+      period:
+        description: "'scheduled' sends whatever is due; daily/weekly send now"
+        type: choice
+        options: [scheduled, daily, weekly]
+        default: scheduled
+
+concurrency:
+  group: ai-news-digest
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  issues: write
+
+jobs:
+  digest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Build digests
+        id: build
+        env:
+          PERIOD: ${{ inputs.period || 'scheduled' }}
+          DIGEST_TIMEZONE: ${{ vars.DIGEST_TIMEZONE || 'UTC' }}
+        run: |
+          # Manual daily/weekly sends go to a temp dir so they don't mark the scheduled digest as sent.
+          output_dir=digests
+          if [ "$PERIOD" != "scheduled" ]; then output_dir="$RUNNER_TEMP/manual-digests"; fi
+          python -m news_aggregator --period "$PERIOD" --output-dir "$output_dir"
+
+      - name: Open notification issues
+        if: steps.build.outputs.nonempty_digest_paths != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DIGEST_PATHS: ${{ steps.build.outputs.nonempty_digest_paths }}
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          gh label create ai-news --color 1D76DB --description "AI news digests" 2>/dev/null || true
+          for path in $DIGEST_PATHS; do
+            title="$(head -n 1 "$path" | sed 's/^# //') — $(basename "$path" .md)"
+            # GitHub issue bodies are limited to 65536 characters.
+            head -c 60000 "$path" > "$RUNNER_TEMP/body.md"
+            # Assigning the owner guarantees a notification email; fall back if the owner is an org.
+            gh issue create --title "$title" --body-file "$RUNNER_TEMP/body.md" --label ai-news --assignee "$OWNER" \
+              || gh issue create --title "$title" --body-file "$RUNNER_TEMP/body.md" --label ai-news
+          done
+
+      - name: Commit delivered digests
+        run: |
+          [ -d digests ] || { echo "Nothing to commit."; exit 0; }
+          git add digests
+          if git diff --cached --quiet; then
+            echo "Nothing to commit."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Add AI news digest(s): $(git diff --cached --name-only | xargs)"
+          git pull --rebase
+          git push
