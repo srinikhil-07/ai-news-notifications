@@ -16,6 +16,8 @@ from urllib.parse import urlsplit, urlunsplit
 
 import feedparser
 
+from . import scraper
+
 log = logging.getLogger(__name__)
 
 USER_AGENT = "ai-news-notifications/1.0 (+https://github.com/srinikhil-07/ai-news-notifications)"
@@ -33,7 +35,21 @@ AI_KEYWORDS = re.compile(
     re.IGNORECASE,
 )
 
+RESEARCH_KEYWORDS = re.compile(
+    r"\b(research|paper|papers|arxiv|study|studies|benchmarks?|datasets?|"
+    r"interpretability|alignment|we propose|we present|findings|evaluations?|"
+    r"theory|theoretical|experiments?|preprint|neurips|icml|iclr|cvpr|acl|emnlp)\b",
+    re.IGNORECASE,
+)
+
 SUMMARY_MAX_CHARS = 280
+
+FEED_TYPES = ("rss", "html")
+CATEGORIES = ("research", "product", "auto")
+CATEGORY_TITLES = {
+    "research": "Research",
+    "product": "Product & Announcements",
+}
 
 
 @dataclass(frozen=True)
@@ -41,6 +57,10 @@ class Feed:
     name: str
     url: str
     ai_only: bool = True
+    category: str = "auto"
+    type: str = "rss"
+    link_pattern: str = ""
+    max_articles: int = 15
 
 
 @dataclass(frozen=True)
@@ -50,6 +70,7 @@ class Article:
     link: str
     published: datetime
     summary: str = ""
+    category: str = "product"
 
 
 def load_feeds(path: str | Path) -> list[Feed]:
@@ -59,8 +80,36 @@ def load_feeds(path: str | Path) -> list[Feed]:
     for entry in data.get("feeds", []):
         if not entry.get("name") or not entry.get("url"):
             raise ValueError(f"Feed entry requires 'name' and 'url': {entry!r}")
-        feeds.append(Feed(name=entry["name"], url=entry["url"], ai_only=entry.get("ai_only", True)))
+        feed = Feed(
+            name=entry["name"],
+            url=entry["url"],
+            ai_only=entry.get("ai_only", True),
+            category=entry.get("category", "auto"),
+            type=entry.get("type", "rss"),
+            link_pattern=entry.get("link_pattern", ""),
+            max_articles=int(entry.get("max_articles", 15)),
+        )
+        if feed.type not in FEED_TYPES:
+            raise ValueError(f"Feed {feed.name!r}: 'type' must be one of {FEED_TYPES}")
+        if feed.category not in CATEGORIES:
+            raise ValueError(f"Feed {feed.name!r}: 'category' must be one of {CATEGORIES}")
+        if feed.type == "html":
+            if not feed.link_pattern:
+                raise ValueError(f"Feed {feed.name!r}: html feeds require 'link_pattern'")
+            re.compile(feed.link_pattern)
+        feeds.append(feed)
     return feeds
+
+
+def classify(feed: Feed, title: str, summary: str, tags: str = "") -> str:
+    """Return 'research' or 'product' for an article."""
+    if feed.category != "auto":
+        return feed.category
+    return "research" if RESEARCH_KEYWORDS.search(f"{title} {summary} {tags}") else "product"
+
+
+def _tags(entry) -> str:
+    return " ".join(t.get("term", "") for t in (entry or {}).get("tags", []) or [])
 
 
 def clean_text(raw: str, max_chars: int = SUMMARY_MAX_CHARS) -> str:
@@ -95,19 +144,43 @@ def parse_feed(feed: Feed, source) -> list[Article]:
         if not title or not link or published is None:
             continue
         summary = clean_text(entry.get("summary", ""))
-        if not feed.ai_only and not is_ai_related(title, summary, entry):
+        tags = _tags(entry)
+        if not feed.ai_only and not is_ai_related(title, summary, tags):
             continue
-        articles.append(Article(feed.name, title, link, published, summary))
+        articles.append(Article(feed.name, title, link, published, summary, classify(feed, title, summary, tags)))
     return articles
 
 
-def is_ai_related(title: str, summary: str, entry=None) -> bool:
-    tags = " ".join(t.get("term", "") for t in (entry or {}).get("tags", []) or [])
+def is_ai_related(title: str, summary: str, tags: str = "") -> bool:
     return bool(AI_KEYWORDS.search(f"{title} {summary} {tags}"))
+
+
+def scrape_feed(feed: Feed, fetch=None) -> list[Article]:
+    """Scrape an HTML listing page and its article pages into articles."""
+    fetch = fetch or (lambda url: scraper.fetch_url(url, USER_AGENT))
+    links = scraper.extract_links(fetch(feed.url), feed.url, feed.link_pattern)[: feed.max_articles]
+    articles = []
+    for link in links:
+        try:
+            raw_title, raw_summary, published = scraper.extract_article(fetch(link))
+        except Exception:  # noqa: BLE001 - skip broken article pages
+            log.warning("Could not scrape article %s for %s", link, feed.name, exc_info=True)
+            continue
+        title = clean_text(raw_title, max_chars=300)
+        summary = clean_text(raw_summary)
+        if not title or published is None:
+            log.info("Skipping %s (%s): missing title or date", link, feed.name)
+            continue
+        if not feed.ai_only and not is_ai_related(title, summary):
+            continue
+        articles.append(Article(feed.name, title, link, published, summary, classify(feed, title, summary)))
+    return articles
 
 
 def fetch_feed(feed: Feed) -> list[Article]:
     try:
+        if feed.type == "html":
+            return scrape_feed(feed)
         return parse_feed(feed, feed.url)
     except Exception:  # noqa: BLE001 - one bad feed must not break the digest
         log.exception("Failed to fetch feed %s (%s)", feed.name, feed.url)
@@ -170,16 +243,21 @@ def render_markdown(articles: list[Article], period: str, now: datetime) -> str:
         lines.append("No new AI posts from the tracked blogs in this period.")
         return "\n".join(lines) + "\n"
 
-    by_source: dict[str, list[Article]] = {}
-    for article in articles:
-        by_source.setdefault(article.source, []).append(article)
-
-    for source in sorted(by_source, key=str.lower):
-        lines.append(f"## {source}")
+    for category, heading in CATEGORY_TITLES.items():
+        by_source: dict[str, list[Article]] = {}
+        for article in articles:
+            if article.category == category:
+                by_source.setdefault(article.source, []).append(article)
+        if not by_source:
+            continue
+        lines.append(f"## {heading}")
         lines.append("")
-        for article in by_source[source]:
-            lines.append(f"- [{_escape_md(article.title)}]({article.link}) — {article.published:%Y-%m-%d}")
-            if article.summary:
-                lines.append(f"  > {article.summary}")
-        lines.append("")
+        for source in sorted(by_source, key=str.lower):
+            lines.append(f"### {source}")
+            lines.append("")
+            for article in by_source[source]:
+                lines.append(f"- [{_escape_md(article.title)}]({article.link}) — {article.published:%Y-%m-%d}")
+                if article.summary:
+                    lines.append(f"  > {article.summary}")
+            lines.append("")
     return "\n".join(lines)

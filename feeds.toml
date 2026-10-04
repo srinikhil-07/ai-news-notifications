@@ -1,8 +1,16 @@
-# AI news sources from tech company blogs.
+# AI news sources from tech company and AI startup blogs.
 #
-# Each [[feeds]] entry needs a `name` and an RSS/Atom `url`.
-# Set `ai_only = false` for general-purpose blogs so that only posts matching
-# AI-related keywords are included in the digest.
+# Fields for each [[feeds]] entry:
+#   name          (required) Display name in the digest.
+#   url           (required) RSS/Atom feed URL, or listing page URL for type = "html".
+#   type          "rss" (default) or "html" for blogs without a feed.
+#   link_pattern  (html only, required) Regex that article URLs on the listing page must fully match.
+#   max_articles  (html only) Max article pages fetched per run (default 15).
+#   ai_only       true (default) if the blog is AI-only. Set false for mixed-topic
+#                 blogs so only posts matching AI keywords are kept.
+#   category      "research", "product", or "auto" (default: classify each post by keywords).
+
+# ---------------------------------------------------------------- Big tech ---
 
 [[feeds]]
 name = "OpenAI"
@@ -15,19 +23,42 @@ url = "https://deepmind.google/blog/rss.xml"
 [[feeds]]
 name = "Google Research"
 url = "https://research.google/blog/rss/"
+category = "research"
 
 [[feeds]]
 name = "Google AI (The Keyword)"
 url = "https://blog.google/technology/ai/rss/"
+category = "product"
+
+[[feeds]]
+name = "Google Cloud AI & ML"
+url = "https://cloudblog.withgoogle.com/products/ai-machine-learning/rss/"
+category = "product"
 
 [[feeds]]
 name = "Microsoft Research"
 url = "https://www.microsoft.com/en-us/research/feed/"
 ai_only = false
+category = "research"
+
+[[feeds]]
+name = "Microsoft AI Blog"
+url = "https://blogs.microsoft.com/ai/feed/"
+category = "product"
+
+[[feeds]]
+name = "Meta AI"
+type = "html"
+url = "https://ai.meta.com/blog/"
+link_pattern = 'https://ai\.meta\.com/blog/[^/]+/?'
 
 [[feeds]]
 name = "Meta Engineering (ML)"
 url = "https://engineering.fb.com/category/ml-applications/feed/"
+
+[[feeds]]
+name = "NVIDIA Blog (Deep Learning)"
+url = "https://blogs.nvidia.com/blog/category/deep-learning/feed/"
 
 [[feeds]]
 name = "NVIDIA Technical Blog"
@@ -37,15 +68,96 @@ ai_only = false
 [[feeds]]
 name = "AWS Machine Learning"
 url = "https://aws.amazon.com/blogs/machine-learning/feed/"
+ai_only = false
 
 [[feeds]]
 name = "Apple Machine Learning Research"
 url = "https://machinelearning.apple.com/rss.xml"
+category = "research"
+
+[[feeds]]
+name = "IBM Research"
+type = "html"
+url = "https://research.ibm.com/blog"
+link_pattern = 'https://research\.ibm\.com/blog/[^/]+/?'
+ai_only = false
+category = "research"
+
+[[feeds]]
+name = "Salesforce AI Research"
+url = "https://www.salesforce.com/blog/category/ai-research/feed/"
+category = "research"
+
+[[feeds]]
+name = "GitHub Blog (AI & ML)"
+url = "https://github.blog/ai-and-ml/feed/"
+category = "product"
+
+# --------------------------------------------------------- AI labs/startups ---
+
+[[feeds]]
+name = "Anthropic News"
+type = "html"
+url = "https://www.anthropic.com/news"
+link_pattern = 'https://www\.anthropic\.com/news/[^/]+/?'
+
+[[feeds]]
+name = "Anthropic Research"
+type = "html"
+url = "https://www.anthropic.com/research"
+link_pattern = 'https://www\.anthropic\.com/research/[^/]+/?'
+category = "research"
+
+[[feeds]]
+name = "Mistral AI"
+type = "html"
+url = "https://mistral.ai/news"
+link_pattern = 'https://mistral\.ai/news/[^/]+/?'
+
+[[feeds]]
+name = "xAI"
+type = "html"
+url = "https://x.ai/news"
+link_pattern = 'https://x\.ai/news/[^/]+/?'
+
+[[feeds]]
+name = "Stability AI"
+url = "https://stability.ai/news?format=rss"
+
+[[feeds]]
+name = "Cohere"
+type = "html"
+url = "https://cohere.com/blog"
+link_pattern = 'https://cohere\.com/blog/[^/]+/?'
 
 [[feeds]]
 name = "Hugging Face"
 url = "https://huggingface.co/blog/feed.xml"
 
 [[feeds]]
-name = "GitHub Blog (AI & ML)"
-url = "https://github.blog/ai-and-ml/feed/"
+name = "Allen Institute for AI (Ai2)"
+type = "html"
+url = "https://allenai.org/blog"
+link_pattern = 'https://allenai\.org/blog/[^/]+/?'
+category = "research"
+
+[[feeds]]
+name = "Databricks"
+url = "https://www.databricks.com/feed"
+ai_only = false
+
+[[feeds]]
+name = "Together AI"
+type = "html"
+url = "https://www.together.ai/blog"
+link_pattern = 'https://www\.together\.ai/blog/[^/]+/?'
+
+[[feeds]]
+name = "LangChain"
+url = "https://blog.langchain.com/rss/"
+category = "product"
+
+[[feeds]]
+name = "Replicate"
+url = "https://replicate.com/blog/rss"
+category = "product"

@@ -7,6 +7,7 @@ from news_aggregator import __main__ as cli
 from news_aggregator.aggregator import (
     Article,
     Feed,
+    classify,
     clean_text,
     digest_path,
     load_feeds,
@@ -81,20 +82,51 @@ def test_digest_path():
     assert digest_path("out", "weekly", NOW) == Path("out/weekly/2026-W40.md")
 
 
-def test_render_markdown_groups_by_source():
+def test_render_markdown_groups_by_category_and_source():
     ts = datetime(2026, 10, 4, 1, 0, tzinfo=timezone.utc)
     md = render_markdown(
         [
-            Article("OpenAI", "New [model]", "https://o.ai/a", ts, "Summary"),
-            Article("DeepMind", "Research", "https://d.ai/b", ts),
+            Article("OpenAI", "New [model]", "https://o.ai/a", ts, "Summary", "product"),
+            Article("DeepMind", "Launch", "https://d.ai/c", ts, "", "product"),
+            Article("DeepMind", "Paper", "https://d.ai/b", ts, "", "research"),
         ],
         "daily",
         NOW,
     )
     assert md.startswith("# Daily AI News Digest")
-    assert md.index("## DeepMind") < md.index("## OpenAI")
+    research = md.index("## Research")
+    product = md.index("## Product & Announcements")
+    assert research < md.index("[Paper]") < product
+    assert product < md.index("### DeepMind", product) < md.index("[Launch]") < md.index("### OpenAI")
     assert r"[New \[model\]](https://o.ai/a) — 2026-10-04" in md
     assert "  > Summary" in md
+
+
+def test_render_markdown_omits_empty_category():
+    ts = datetime(2026, 10, 4, 1, 0, tzinfo=timezone.utc)
+    md = render_markdown([Article("A", "T", "https://a/1", ts, "", "product")], "daily", NOW)
+    assert "## Research" not in md
+    assert "## Product & Announcements" in md
+
+
+def test_classify():
+    auto = Feed("X", "u")
+    assert classify(auto, "Introducing GPT-9", "Available today in the API") == "product"
+    assert classify(auto, "Scaling laws", "A new paper on arXiv") == "research"
+    assert classify(Feed("X", "u", category="research"), "Introducing GPT-9", "") == "research"
+
+
+def test_load_feeds_validates_type_and_category(tmp_path):
+    cfg = tmp_path / "feeds.toml"
+    cfg.write_text('[[feeds]]\nname = "x"\nurl = "u"\ntype = "html"\n')
+    with pytest.raises(ValueError, match="link_pattern"):
+        load_feeds(cfg)
+    cfg.write_text('[[feeds]]\nname = "x"\nurl = "u"\ncategory = "misc"\n')
+    with pytest.raises(ValueError, match="category"):
+        load_feeds(cfg)
+    cfg.write_text('[[feeds]]\nname = "x"\nurl = "u"\ntype = "json"\n')
+    with pytest.raises(ValueError, match="type"):
+        load_feeds(cfg)
 
 
 def test_render_markdown_empty():
