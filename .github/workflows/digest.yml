@@ -1,16 +1,21 @@
 name: AI News Digest
 
+# GitHub cron only supports UTC, so this runs hourly and the aggregator decides
+# what is due in the DIGEST_TIMEZONE repository variable (default UTC):
+#   - daily digest (previous 24 hours) every day at 08:00 local time
+#   - weekly digest (previous 7 days) every Sunday at 08:00 local time
+# Delivered digests are committed under digests/, which marks them as sent so
+# each email goes out exactly once even if a run is delayed or retried.
 on:
   schedule:
-    - cron: "0 7 * * *"   # daily digest, 07:00 UTC
-    - cron: "30 7 * * 1"  # weekly digest, Mondays 07:30 UTC
+    - cron: "5 * * * *"
   workflow_dispatch:
     inputs:
       period:
-        description: Digest period
+        description: "'scheduled' sends whatever is due; daily/weekly send now"
         type: choice
-        options: [daily, weekly]
-        default: daily
+        options: [scheduled, daily, weekly]
+        default: scheduled
 
 concurrency:
   group: ai-news-digest
@@ -18,7 +23,6 @@ concurrency:
 
 permissions:
   contents: write
-  issues: write
 
 jobs:
   digest:
@@ -34,49 +38,34 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Determine period
-        id: period
-        env:
-          EVENT_SCHEDULE: ${{ github.event.schedule }}
-          INPUT_PERIOD: ${{ inputs.period }}
-        run: |
-          if [ "$EVENT_SCHEDULE" = "30 7 * * 1" ]; then
-            period=weekly
-          elif [ "$INPUT_PERIOD" = "weekly" ]; then
-            period=weekly
-          else
-            period=daily
-          fi
-          echo "value=$period" >> "$GITHUB_OUTPUT"
-
-      - name: Build digest
+      - name: Build and email digests
         id: build
-        run: python -m news_aggregator --period "${{ steps.period.outputs.value }}" --output-dir digests
-
-      - name: Commit digest
         env:
-          DIGEST_PATH: ${{ steps.build.outputs.digest_path }}
+          PERIOD: ${{ inputs.period || 'scheduled' }}
+          DIGEST_TIMEZONE: ${{ vars.DIGEST_TIMEZONE || 'UTC' }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
+          EMAIL_TO: ${{ secrets.EMAIL_TO }}
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add "$DIGEST_PATH"
+          # Manual daily/weekly sends go to a temp dir so they don't mark the scheduled digest as sent.
+          output_dir=digests
+          if [ "$PERIOD" != "scheduled" ]; then output_dir="$RUNNER_TEMP/manual-digests"; fi
+          python -m news_aggregator --period "$PERIOD" --email --output-dir "$output_dir"
+
+      - name: Commit delivered digests
+        if: ${{ !cancelled() }}
+        run: |
+          [ -d digests ] || { echo "Nothing to commit."; exit 0; }
+          git add digests
           if git diff --cached --quiet; then
-            echo "No changes to commit."
+            echo "Nothing to commit."
             exit 0
           fi
-          git commit -m "Add AI news digest: $DIGEST_PATH"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Add AI news digest(s): $(git diff --cached --name-only | xargs)"
           git pull --rebase
           git push
-
-      - name: Open notification issue
-        if: steps.build.outputs.article_count != '0'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          DIGEST_PATH: ${{ steps.build.outputs.digest_path }}
-          PERIOD: ${{ steps.period.outputs.value }}
-        run: |
-          title="$(head -n 1 "$DIGEST_PATH" | sed 's/^# //') — $(basename "$DIGEST_PATH" .md)"
-          # GitHub issue bodies are limited to 65536 characters.
-          head -c 60000 "$DIGEST_PATH" > body.md
-          gh label create ai-news --color 1D76DB --description "AI news digests" 2>/dev/null || true
-          gh issue create --title "$title" --body-file body.md --label ai-news

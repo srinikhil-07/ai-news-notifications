@@ -236,7 +236,7 @@ def render_markdown(articles: list[Article], period: str, now: datetime) -> str:
     lines = [
         f"# {title} AI News Digest",
         "",
-        f"_{start:%Y-%m-%d %H:%M} UTC → {now:%Y-%m-%d %H:%M} UTC · {len(articles)} article(s)_",
+        f"_{start:%Y-%m-%d %H:%M %Z} → {now:%Y-%m-%d %H:%M %Z} · {len(articles)} article(s)_",
         "",
     ]
     if not articles:
