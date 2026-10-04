@@ -28,13 +28,11 @@ def due_periods(
     window_end = datetime.combine(now.date(), time(send_hour), tzinfo=now.tzinfo)
     if now < window_end:
         return []
-    due = []
-    for period in ("daily", "weekly"):
-        if period == "weekly" and window_end.weekday() != weekly_day:
-            continue
-        if not digest_path(output_dir, period, window_end).exists():
-            due.append((period, window_end))
-    return due
+    if window_end.weekday() != weekly_day:
+        return []
+    if not digest_path(output_dir, "weekly", window_end).exists():
+        return [("weekly", window_end)]
+    return []
 
 
 def _parse_now(value: str) -> datetime:
@@ -55,7 +53,7 @@ def main(argv: list[str] | None = None) -> int:
         "--period",
         choices=sorted(PERIODS) + ["scheduled"],
         default="daily",
-        help="'scheduled' builds whichever digests are due (daily at --send-hour, weekly on --weekly-day).",
+        help="'scheduled' builds the weekly digest when due; manual daily/weekly runs are still available.",
     )
     parser.add_argument("--feeds", default="feeds.toml", help="Path to the feeds TOML config.")
     parser.add_argument("--output-dir", default="digests", help="Directory to write digests into.")

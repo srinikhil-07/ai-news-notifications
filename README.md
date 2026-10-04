@@ -4,8 +4,7 @@ built with agents to get ai news aggregated from ai tech company blogs
 Collects posts from AI blogs at big tech companies and AI startups and builds Markdown digests
 split into **Research** and **Product & Announcements** sections:
 
-- **Daily** at 08:00 (your timezone): posts from the previous 24 hours.
-- **Weekly** on Sunday at 08:00: posts from the previous 7 days. On Sundays you get both.
+- **Weekly** on Sunday at 08:00: posts from the previous 7 days.
 
 Each digest with new posts is opened as a GitHub **issue** (label `ai-news`) and assigned to the
 repository owner, so GitHub emails it to you.
@@ -41,21 +40,21 @@ rest of the digest is still built.
 2. **Get the issue emails:** in [GitHub notification settings](https://github.com/settings/notifications),
    make sure **Email** is turned on for "Participating, @mentions and custom". You're assigned to
    each issue, so this works even if you stop watching the repository.
-3. **Test it:** open **Actions → AI News Digest → Run workflow** and choose `daily` to open an
+3. **Test it:** open **Actions → AI News Digest → Run workflow** and choose `weekly` to open an
    issue right away. Manual runs don't affect the schedule.
 
-GitHub's scheduler only runs in UTC, so the workflow runs every hour and checks what's due in your
-timezone. Once a digest is delivered, it's committed to `digests/`, so each digest is sent exactly
-once. If a run is delayed or fails, the next hourly run catches up. A daily digest always covers
-08:00 the day before up to 08:00 today; the weekly one covers the previous Sunday 08:00 to this
-Sunday 08:00. If a period has no new posts, the digest is still committed but no issue is opened.
+GitHub's scheduler only runs in UTC, so the workflow checks whether Sunday 08:00 in your timezone
+is due. Once a digest is delivered, it's committed to `digests/`, so each digest is sent exactly
+once. If a run is delayed or fails, the next scheduled run catches up. The weekly digest covers the
+previous Sunday 08:00 to this Sunday 08:00. If a period has no new posts, the digest is still
+committed but no issue is opened.
 
 ## Usage
 
 ```bash
 pip install -r requirements.txt
-python -m news_aggregator --period daily            # writes digests/daily/YYYY-MM-DD.md
-python -m news_aggregator --period weekly --stdout  # print instead of writing
+python -m news_aggregator --period weekly          # writes digests/weekly/YYYY-Www.md
+python -m news_aggregator --period daily --stdout  # generate a one-off daily digest for inspection
 python -m news_aggregator --period scheduled --timezone Asia/Kolkata  # what the workflow runs
 ```
 
