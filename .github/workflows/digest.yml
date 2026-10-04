@@ -1,22 +1,20 @@
 name: AI News Digest
 
-# GitHub cron only supports UTC, so this runs hourly and the aggregator decides
-# what is due in the DIGEST_TIMEZONE repository variable (default UTC):
-#   - daily digest (previous 24 hours) every day at 08:00 local time
-#   - weekly digest (previous 7 days) every Sunday at 08:00 local time
+# GitHub cron only supports UTC, so the scheduled job runs once per week and
+# checks whether Sunday 08:00 in the DIGEST_TIMEZONE repository variable is due.
 # Each digest with new posts is opened as a GitHub issue assigned to the repo
 # owner, which triggers a GitHub email notification.
 # Delivered digests are committed under digests/, which marks them as sent so
 # each digest goes out exactly once even if a run is delayed or retried.
 on:
   schedule:
-    - cron: "5 * * * *"
+    - cron: "5 8 * * 0"
   workflow_dispatch:
     inputs:
       period:
-        description: "'scheduled' sends whatever is due; daily/weekly send now"
+        description: "'scheduled' sends the weekly digest if due; 'weekly' sends now"
         type: choice
-        options: [scheduled, daily, weekly]
+        options: [scheduled, weekly]
         default: scheduled
 
 concurrency:
@@ -47,7 +45,7 @@ jobs:
           PERIOD: ${{ inputs.period || 'scheduled' }}
           DIGEST_TIMEZONE: ${{ vars.DIGEST_TIMEZONE || 'UTC' }}
         run: |
-          # Manual daily/weekly sends go to a temp dir so they don't mark the scheduled digest as sent.
+          # Manual weekly sends go to a temp dir so they don't mark the scheduled digest as sent.
           output_dir=digests
           if [ "$PERIOD" != "scheduled" ]; then output_dir="$RUNNER_TEMP/manual-digests"; fi
           python -m news_aggregator --period "$PERIOD" --output-dir "$output_dir"
