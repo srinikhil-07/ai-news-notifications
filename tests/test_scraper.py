@@ -74,14 +74,13 @@ def test_scrape_feed_builds_categorized_articles():
     assert by_title["Tracing thoughts in a language model"].category == "research"
 
 
-def test_scrape_feed_respects_max_articles_and_skips_broken_pages():
+def test_scrape_feed_limits_page_fetches_and_skips_broken_pages():
     pages = dict(PAGES)
     del pages[f"{BASE}/claude-new-model"]  # fetch raises KeyError -> skipped
     feed = Feed("Lab", BASE, type="html", link_pattern=PATTERN, max_articles=2)
     articles = scrape_feed(feed, fetch=pages.__getitem__)
     assert [a.title for a in articles] == [
         "Tracing thoughts in a language model",
-        "Old AI post",
     ]
 
 
