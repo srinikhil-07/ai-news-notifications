@@ -70,7 +70,12 @@ def main(argv: list[str] | None = None) -> int:
                         help="Local hour at which scheduled digests are sent (default: 8).")
     parser.add_argument("--weekly-day", choices=WEEKDAYS, default="sunday",
                         help="Day the scheduled weekly digest is sent (default: sunday).")
-    parser.add_argument("--email", action="store_true", help="Email each digest (SMTP settings from env).")
+    parser.add_argument(
+        "--email",
+        action=argparse.BooleanOptionalAction,
+        default=os.environ.get("EMAIL_ENABLED", "").strip().lower() in ("1", "true", "yes", "on"),
+        help="Email each digest via SMTP (default: on if $EMAIL_ENABLED is true).",
+    )
     parser.add_argument("--stdout", action="store_true", help="Print the digest instead of writing a file.")
     args = parser.parse_args(argv)
 
@@ -95,7 +100,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     all_articles = fetch_all(load_feeds(args.feeds))
-    written: list[Path] = []
+    written: list[tuple[Path, int]] = []
     total = 0
     for period, window_end in jobs:
         articles = select_articles(all_articles, period, window_end)
@@ -122,19 +127,22 @@ def main(argv: list[str] | None = None) -> int:
         path = digest_path(args.output_dir, period, window_end)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(markdown, encoding="utf-8")
-        written.append(path)
+        written.append((path, len(articles)))
         logging.info("Wrote %d article(s) to %s", len(articles), path)
 
     _write_outputs(written, total)
     return 0
 
 
-def _write_outputs(paths: list[Path], total: int) -> None:
+def _write_outputs(written: list[tuple[Path, int]], total: int) -> None:
     github_output = os.environ.get("GITHUB_OUTPUT")
     if github_output:
+        paths = [str(path) for path, _ in written]
+        with_articles = [str(path) for path, count in written if count]
         with open(github_output, "a", encoding="utf-8") as fh:
             fh.write(f"digest_path={paths[0] if paths else ''}\n")
-            fh.write(f"digest_paths={' '.join(str(p) for p in paths)}\n")
+            fh.write(f"digest_paths={' '.join(paths)}\n")
+            fh.write(f"nonempty_digest_paths={' '.join(with_articles)}\n")
             fh.write(f"article_count={total}\n")
 
 

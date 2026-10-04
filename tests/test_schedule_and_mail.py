@@ -144,3 +144,61 @@ def test_failed_send_does_not_mark_digest_delivered(tmp_path, monkeypatch):
             "--now", "2026-10-05T08:10:00",
         ])
     assert not (tmp_path / "digests" / "daily" / "2026-10-05.md").exists()
+
+
+def _feeds(tmp_path):
+    feeds = tmp_path / "feeds.toml"
+    feeds.write_text(f'[[feeds]]\nname = "Example"\nurl = "{(FIXTURES / "rss.xml").as_posix()}"\n')
+    return feeds
+
+
+def test_email_disabled_by_default(tmp_path, monkeypatch):
+    monkeypatch.delenv("EMAIL_ENABLED", raising=False)
+    monkeypatch.delenv("SMTP_HOST", raising=False)  # would raise if email were attempted
+    monkeypatch.setattr(mailer, "send_message", lambda *a, **k: pytest.fail("email sent while disabled"))
+    assert cli.main([
+        "--period", "daily", "--feeds", str(_feeds(tmp_path)),
+        "--output-dir", str(tmp_path / "d"), "--now", "2026-10-04T06:00:00",
+    ]) == 0
+    assert (tmp_path / "d" / "daily" / "2026-10-04.md").exists()
+
+
+@pytest.mark.parametrize("value", ["true", "1", "YES"])
+def test_email_enabled_flag_requires_smtp_settings(tmp_path, monkeypatch, value):
+    monkeypatch.setenv("EMAIL_ENABLED", value)
+    monkeypatch.delenv("SMTP_HOST", raising=False)
+    monkeypatch.delenv("EMAIL_TO", raising=False)
+    with pytest.raises(ValueError, match="SMTP_HOST"):
+        cli.main(["--period", "daily", "--feeds", str(_feeds(tmp_path)), "--output-dir", str(tmp_path / "d")])
+
+
+def test_no_email_flag_overrides_env(tmp_path, monkeypatch):
+    monkeypatch.setenv("EMAIL_ENABLED", "true")
+    monkeypatch.delenv("SMTP_HOST", raising=False)
+    assert cli.main([
+        "--period", "daily", "--no-email", "--feeds", str(_feeds(tmp_path)),
+        "--output-dir", str(tmp_path / "d"), "--now", "2026-10-04T06:00:00",
+    ]) == 0
+
+
+def test_outputs_list_only_digests_with_articles(tmp_path, monkeypatch):
+    monkeypatch.delenv("EMAIL_ENABLED", raising=False)
+    gh_output = tmp_path / "gh_output"
+    monkeypatch.setenv("GITHUB_OUTPUT", str(gh_output))
+    # Monday 08:10 UTC: the daily window (Sun 08:00 -> Mon 08:00) has no fixture posts.
+    assert cli.main([
+        "--period", "scheduled", "--timezone", "UTC", "--feeds", str(_feeds(tmp_path)),
+        "--output-dir", str(tmp_path / "d"), "--now", "2026-10-05T08:10:00",
+    ]) == 0
+    out = gh_output.read_text()
+    assert f"digest_paths={tmp_path / 'd' / 'daily' / '2026-10-05.md'}\n" in out
+    assert "nonempty_digest_paths=\n" in out
+
+    gh_output.unlink()
+    assert cli.main([
+        "--period", "scheduled", "--timezone", "UTC", "--feeds", str(_feeds(tmp_path)),
+        "--output-dir", str(tmp_path / "d"), "--now", "2026-10-04T08:10:00",
+    ]) == 0
+    out = gh_output.read_text()
+    assert f"nonempty_digest_paths={tmp_path / 'd' / 'daily' / '2026-10-04.md'} " \
+           f"{tmp_path / 'd' / 'weekly' / '2026-W40.md'}\n" in out
