@@ -1,5 +1,6 @@
 from datetime import datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -54,6 +55,35 @@ def test_parse_feed_filters_non_ai_posts_for_general_blogs():
 def test_parse_atom():
     articles = parse_feed(Feed("Atom", "unused"), str(FIXTURES / "atom.xml"))
     assert [a.link for a in articles] == ["https://atom.example.com/diffusion"]
+
+
+def test_parse_feed_uses_timeout_for_http_sources(monkeypatch):
+    calls = []
+
+    class FakeResponse:
+        headers = SimpleNamespace(get_content_charset=lambda: "utf-8")
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self):
+            return b"<rss><channel><title>Example</title><item><title>hi</title><link>https://example.com/post</link><pubDate>Sun, 05 Oct 2026 12:00:00 GMT</pubDate></item></channel></rss>"
+
+    def fake_urlopen(request, timeout):
+        calls.append(timeout)
+        assert request.full_url == "https://example.com/feed.xml"
+        assert request.get_header("User-agent") == "ai-news-notifications/1.0 (+https://github.com/srinikhil-07/ai-news-notifications)"
+        return FakeResponse()
+
+    monkeypatch.setattr("news_aggregator.aggregator.urllib.request.urlopen", fake_urlopen)
+
+    articles = parse_feed(Feed("Example", "unused"), "https://example.com/feed.xml")
+
+    assert calls == [20.0]
+    assert [a.title for a in articles] == ["hi"]
 
 
 def test_select_daily_and_weekly_windows():

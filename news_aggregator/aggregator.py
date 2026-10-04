@@ -7,6 +7,7 @@ import html
 import logging
 import re
 import tomllib
+import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -129,8 +130,17 @@ def _entry_datetime(entry) -> datetime | None:
     return None
 
 
+def _fetch_url_with_timeout(url: str, timeout: float = 20.0) -> str:
+    request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, "Accept": "application/rss+xml, application/xml, text/xml, */*"})
+    with urllib.request.urlopen(request, timeout=timeout) as response:  # noqa: S310 - URLs come from config
+        charset = response.headers.get_content_charset() or "utf-8"
+        return response.read().decode(charset, errors="replace")
+
+
 def parse_feed(feed: Feed, source) -> list[Article]:
     """Parse a feed from a URL, file path, or raw XML string into articles."""
+    if isinstance(source, str) and source.startswith(("http://", "https://")):
+        source = _fetch_url_with_timeout(source)
     parsed = feedparser.parse(source, agent=USER_AGENT)
     if parsed.get("bozo") and not parsed.entries:
         log.warning("Could not parse feed %s (%s): %s", feed.name, feed.url, parsed.get("bozo_exception"))
