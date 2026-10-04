@@ -8,8 +8,7 @@ split into **Research** and **Product & Announcements** sections:
 - **Weekly** on Sunday at 08:00: posts from the previous 7 days. On Sundays you get both.
 
 Each digest with new posts is opened as a GitHub **issue** (label `ai-news`) and assigned to the
-repository owner, so GitHub emails it to you. Sending email directly over SMTP is also supported,
-but it is turned off by default (see [Optional: direct email](#optional-direct-email-smtp)).
+repository owner, so GitHub emails it to you.
 
 ## Sources
 
@@ -51,25 +50,6 @@ once. If a run is delayed or fails, the next hourly run catches up. A daily dige
 08:00 the day before up to 08:00 today; the weekly one covers the previous Sunday 08:00 to this
 Sunday 08:00. If a period has no new posts, the digest is still committed but no issue is opened.
 
-## Optional: direct email (SMTP)
-
-Direct email is off by default. To turn it on, set the repository **variable**
-`EMAIL_ENABLED` to `true` and add these **secrets**:
-
-| Secret | Example | Notes |
-|---|---|---|
-| `SMTP_HOST` | `smtp.gmail.com` | Required |
-| `SMTP_PORT` | `587` | Optional. 587 = STARTTLS (default), 465 = SSL |
-| `SMTP_USERNAME` | `you@gmail.com` | Optional, needed if your server requires login |
-| `SMTP_PASSWORD` | Gmail *App Password* | Optional |
-| `EMAIL_FROM` | `you@gmail.com` | Defaults to `SMTP_USERNAME` |
-| `EMAIL_TO` | `you@example.com, team@example.com` | Required, comma-separated |
-
-For Gmail, turn on 2-Step Verification and create an
-[App Password](https://myaccount.google.com/apppasswords). Your normal Gmail password won't work.
-When this is on, every digest (including ones with no new posts) is emailed as HTML in addition
-to the GitHub issue.
-
 ## Usage
 
 ```bash
@@ -80,7 +60,6 @@ python -m news_aggregator --period scheduled --timezone Asia/Kolkata  # what the
 ```
 
 Options: `--send-hour` (default 8) and `--weekly-day` (default `sunday`) change the schedule.
-`--email` / `--no-email` override the `EMAIL_ENABLED` environment variable.
 
 ## Tests
 

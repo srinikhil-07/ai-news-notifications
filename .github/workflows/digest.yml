@@ -5,8 +5,7 @@ name: AI News Digest
 #   - daily digest (previous 24 hours) every day at 08:00 local time
 #   - weekly digest (previous 7 days) every Sunday at 08:00 local time
 # Each digest with new posts is opened as a GitHub issue assigned to the repo
-# owner, which triggers a GitHub email notification. Direct SMTP email is
-# behind the EMAIL_ENABLED repository variable (off by default).
+# owner, which triggers a GitHub email notification.
 # Delivered digests are committed under digests/, which marks them as sent so
 # each digest goes out exactly once even if a run is delayed or retried.
 on:
@@ -47,13 +46,6 @@ jobs:
         env:
           PERIOD: ${{ inputs.period || 'scheduled' }}
           DIGEST_TIMEZONE: ${{ vars.DIGEST_TIMEZONE || 'UTC' }}
-          EMAIL_ENABLED: ${{ vars.EMAIL_ENABLED || 'false' }}
-          SMTP_HOST: ${{ secrets.SMTP_HOST }}
-          SMTP_PORT: ${{ secrets.SMTP_PORT }}
-          SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
-          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
-          EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
-          EMAIL_TO: ${{ secrets.EMAIL_TO }}
         run: |
           # Manual daily/weekly sends go to a temp dir so they don't mark the scheduled digest as sent.
           output_dir=digests

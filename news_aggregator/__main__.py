@@ -70,23 +70,11 @@ def main(argv: list[str] | None = None) -> int:
                         help="Local hour at which scheduled digests are sent (default: 8).")
     parser.add_argument("--weekly-day", choices=WEEKDAYS, default="sunday",
                         help="Day the scheduled weekly digest is sent (default: sunday).")
-    parser.add_argument(
-        "--email",
-        action=argparse.BooleanOptionalAction,
-        default=os.environ.get("EMAIL_ENABLED", "").strip().lower() in ("1", "true", "yes", "on"),
-        help="Email each digest via SMTP (default: on if $EMAIL_ENABLED is true).",
-    )
     parser.add_argument("--stdout", action="store_true", help="Print the digest instead of writing a file.")
     args = parser.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     now = (args.now or datetime.now(timezone.utc)).astimezone(args.timezone)
-
-    smtp_config = None
-    if args.email:
-        from . import mailer
-
-        smtp_config = mailer.SmtpConfig.from_env()
 
     if args.period == "scheduled":
         jobs = due_periods(now, args.output_dir, args.send_hour, WEEKDAYS.index(args.weekly_day))
@@ -111,19 +99,6 @@ def main(argv: list[str] | None = None) -> int:
             sys.stdout.write(markdown)
             continue
 
-        if smtp_config is not None:
-            from . import mailer
-
-            message = mailer.build_message(
-                smtp_config,
-                mailer.subject_for(period, window_end, len(articles)),
-                markdown,
-                mailer.render_html(articles, period, window_end),
-            )
-            mailer.send_message(smtp_config, message)
-            logging.info("Emailed %s digest to %d recipient(s)", period, len(smtp_config.recipients))
-
-        # Written after a successful send so a failed delivery is retried by the next scheduled run.
         path = digest_path(args.output_dir, period, window_end)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(markdown, encoding="utf-8")
