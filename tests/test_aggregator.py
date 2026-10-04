@@ -11,6 +11,7 @@ from news_aggregator.aggregator import (
     classify,
     clean_text,
     digest_path,
+    fetch_all,
     load_feeds,
     parse_feed,
     render_markdown,
@@ -43,6 +44,27 @@ def test_parse_rss_skips_undated_and_cleans_summary():
     llm = articles[0]
     assert llm.summary == "Our LLM is faster & smarter."
     assert llm.published == datetime(2026, 10, 3, 12, 0, tzinfo=timezone.utc)
+
+
+def test_fetch_all_skips_broken_feeds_but_keeps_others():
+    ok = Feed("Good", "https://good.example.com/feed", type="rss")
+    broken = Feed("Broken", "https://broken.example.com/feed", type="rss")
+
+    def fake_fetch(feed: Feed):
+        if feed.name == "Good":
+            return [Article(feed.name, "Good article", "https://good.example.com/post", datetime(2026, 10, 3, tzinfo=timezone.utc))]
+        raise ValueError("site down")
+
+    import news_aggregator.aggregator as aggregator_module
+
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(aggregator_module, "fetch_feed", fake_fetch)
+    try:
+        articles = fetch_all([ok, broken], max_workers=2)
+    finally:
+        monkeypatch.undo()
+
+    assert [a.title for a in articles] == ["Good article"]
 
 
 def test_parse_feed_filters_non_ai_posts_for_general_blogs():
