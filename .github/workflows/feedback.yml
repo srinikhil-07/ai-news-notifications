@@ -1,0 +1,62 @@
+name: AI News Feedback
+
+# Records reader feedback on ai-news digest issues into feedback/:
+# ticked 👍/👎 checkboxes (issue edits), slash commands in comments
+# (/more, /less, /mute, /reset) and format labels (too-long, too-short,
+# too-much-product, too-much-research). Only the repository owner (plus users
+# in the FEEDBACK_USERS variable) counts; everyone else is ignored.
+on:
+  issues:
+    types: [edited, labeled, unlabeled]
+  issue_comment:
+    types: [created]
+
+# Separate from the digest's group so a queued weekly digest is never replaced by
+# a feedback run. Both workflows recompute feedback/ before pushing, so they don't conflict.
+concurrency:
+  group: ai-news-feedback
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  issues: read
+
+jobs:
+  feedback:
+    if: >-
+      contains(github.event.issue.labels.*.name, 'ai-news') &&
+      !github.event.issue.pull_request &&
+      (github.event.sender.login == github.repository_owner ||
+       contains(format(',{0},', vars.FEEDBACK_USERS), format(',{0},', github.event.sender.login)))
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Record feedback
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FEEDBACK_USERS: ${{ vars.FEEDBACK_USERS }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          for attempt in 1 2 3; do
+            git fetch -q origin "$BRANCH"
+            git reset -q --hard "origin/$BRANCH"
+            python -m news_aggregator.feedback sync --issue "$ISSUE_NUMBER"
+            git add feedback
+            if git diff --cached --quiet; then echo "No new feedback."; exit 0; fi
+            git commit -qm "Record feedback from issue #$ISSUE_NUMBER"
+            if git push -q origin "HEAD:$BRANCH"; then exit 0; fi
+            sleep $((attempt * 5))
+          done
+          exit 1
