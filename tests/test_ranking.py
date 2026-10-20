@@ -1,0 +1,137 @@
+from datetime import datetime, timezone
+from pathlib import Path
+
+from news_aggregator import __main__ as cli
+from news_aggregator.feedback import parse_issue_body
+from news_aggregator.ranking import (
+    assign_tiers,
+    footer_line,
+    render_issue_body,
+    render_ranked,
+    score_article,
+)
+from news_aggregator.summarize import Detail, Triage, article_id
+
+from .test_aggregator import FIXTURES
+from .test_summarize import FakeProvider, art
+
+NOW = datetime(2026, 10, 18, 8, tzinfo=timezone.utc)
+
+
+def test_score_combines_profile_llm_and_rules():
+    a = art("Agent evals", "Lab")
+    profile = {"sources": {"lab": 2.0}, "topics": {"agents": 2.0, "infra": -2.0}, "categories": {"research": -2.0}}
+    base, muted = score_article(a, Triage("g", ()), {})
+    assert base == 0 and not muted
+    liked, _ = score_article(a, Triage("g", ("agents",), relevance=0.9, kind="product"), profile)
+    disliked, _ = score_article(a, Triage("g", ("infra",), relevance=0.1, kind="research"), profile)
+    assert liked > base > disliked
+    boosted, _ = score_article(a, Triage("g", ("evals",)), {"rules": {"topic:evals": "more"}})
+    assert boosted == 1.5
+    _, muted = score_article(a, Triage("g", ("evals",)), {"rules": {"source:Lab": "mute"}})
+    assert muted
+
+
+def _articles(n, source="Lab"):
+    return [art(f"{source} post {i}", source) for i in range(n)]
+
+
+def test_tiers_without_feedback():
+    articles = _articles(50)
+    ranked = assign_tiers(articles, {}, {}, top_n=12, middle_n=30)
+    tiers = [r.tier for r in ranked]
+    assert tiers.count("top") == 12 and tiers.count("middle") == 30 and tiers.count("low") == 8
+    assert not any(r.exploring for r in ranked)
+
+
+def test_tiers_with_feedback_explore_mute_and_format_delta():
+    liked = _articles(20, "Liked")
+    unseen = [art("Unseen post", "Brand New Lab")]
+    muted = [art("Muted post", "Databricks")]
+    articles = liked + unseen + muted
+    triages = {article_id(a): Triage("g", ("agents",), relevance=0.2 if a in unseen else 0.9) for a in articles}
+    profile = {"signals": 5, "sources": {"Liked": 3.0}, "topics": {"agents": 1.0},
+               "rules": {"source:Databricks": "mute"}, "format": {"top_n_delta": -4}}
+    ranked = assign_tiers(articles, triages, profile, top_n=12, middle_n=5)
+    top = [r for r in ranked if r.tier == "top"]
+    assert len(top) == 8  # 12 - 4 from the too-long label
+    assert [r.article.title for r in top if r.exploring] == ["Unseen post"]
+    assert {r.article.title: r.tier for r in ranked}["Muted post"] == "low"
+    assert len(ranked) == len(articles)  # nothing is dropped
+
+
+def test_render_tiers_overview_and_footer():
+    articles = _articles(6)
+    articles[3] = art("From excerpt", content="x", content_source="excerpt")
+    ranked = assign_tiers(articles, {}, {}, top_n=3, middle_n=2)
+    ranked[0].detail = Detail("Long summary.", ("Point A", "Point B"), "Because.", "research")
+    md = render_ranked(ranked, ["Big week."], "weekly", NOW, {})
+    assert md.index("## This week in AI") < md.index("## ⭐ Top picks") < md.index("## Product & Announcements")
+    assert "  > Long summary.\n  >\n  > - Point A\n  > - Point B\n  >\n  > _Why it matters:_ Because." in md
+    assert " · research <!-- a:" in md
+    assert "<details>\n<summary>1 more article(s), lightly summarised</summary>" in md
+    assert "_(from excerpt)_" in md
+    assert "No feedback yet" in md
+    assert md.count("👍 more like this") == 6
+
+
+def test_footer_transparency():
+    profile = {"signals": 14, "topics": {"agents": 1.2, "infra": -0.9}, "sources": {"Anthropic Research": 0.8},
+               "rules": {"source:Databricks": "mute", "topic:evals": "more"}}
+    assert footer_line(profile) == (
+        "_Ranked using 14 feedback signals; boosted: agents, Anthropic Research, evals; "
+        "reduced: infra; muted: Databricks._"
+    )
+
+
+def test_issue_body_fits_budget_and_keeps_feedback_markers():
+    articles = [art(f"Article with a fairly long title number {i}") for i in range(100)]
+    ranked = assign_tiers(articles, {}, {}, top_n=12, middle_n=40)
+    for r in ranked:
+        if r.tier == "top":
+            r.detail = Detail("S " * 200, ("P " * 50,) * 5, "W " * 100, "research")
+    full = render_ranked(ranked, [], "weekly", NOW, {})
+    url = "https://github.com/o/r/blob/main/digests/weekly/2026-W42.md"
+    body = render_issue_body(ranked, [], "weekly", NOW, {}, url, max_chars=30000)
+    assert len(full) > 30000 >= len(body)
+    assert "[full digest](" + url + ")" in body
+    assert len(parse_issue_body(body)[0]) == 100
+    tiny = render_issue_body(ranked, [], "weekly", NOW, {}, url, max_chars=5000)
+    assert len(tiny) <= 5000 and "Truncated" in tiny
+    assert tiny.count("<details>") == tiny.count("</details>")
+
+
+def test_cli_ranked_mode_with_llm(tmp_path, monkeypatch):
+    feeds = tmp_path / "feeds.toml"
+    feeds.write_text(f'[[feeds]]\nname = "Full"\nurl = "{(FIXTURES / "fulltext_rss.xml").as_posix()}"\n')
+    provider = FakeProvider()
+    monkeypatch.setattr(cli.llm, "make_provider", lambda name: provider)
+    monkeypatch.setattr(cli.scraper, "fetch_url", lambda url, ua: (FIXTURES / "messy_article.html").read_text())
+    monkeypatch.setenv("GITHUB_REPOSITORY", "o/r")
+    monkeypatch.setenv("GITHUB_REF_NAME", "main")
+    args = [
+        "--period", "weekly", "--llm", "openai", "--feeds", str(feeds), "--now", "2026-10-04T08:10:00",
+        "--output-dir", "digests", "--cache-dir", str(tmp_path / "cache"),
+        "--feedback-dir", str(tmp_path / "fb"), "--issue-dir", str(tmp_path / "issues"),
+    ]
+    monkeypatch.chdir(tmp_path)
+    assert cli.main(args) == 0
+    md = (tmp_path / "digests" / "weekly" / "2026-W40.md").read_text()
+    assert "## This week in AI" in md and "Detailed summary." in md
+    issue = (tmp_path / "issues" / "2026-W40.md").read_text()
+    assert issue == md  # small digest fits unchanged
+    assert (tmp_path / "cache" / "summaries.json").exists()
+    calls = len(provider.prompts)
+    assert calls == 1 + 2 + 1  # triage batch, 2 details, overview
+
+    # A rerun is served from the cache.
+    provider.prompts.clear()
+    assert cli.main(args) == 0
+    assert provider.prompts == []
+
+
+def test_issue_link_only_for_repo_relative_paths(monkeypatch, tmp_path):
+    monkeypatch.setenv("GITHUB_REPOSITORY", "o/r")
+    monkeypatch.setenv("GITHUB_REF_NAME", "main")
+    assert cli._full_digest_url(Path("digests/weekly/x.md")) == "https://github.com/o/r/blob/main/digests/weekly/x.md"
+    assert cli._full_digest_url(tmp_path / "x.md") == ""
