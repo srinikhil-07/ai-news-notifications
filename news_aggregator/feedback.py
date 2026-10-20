@@ -104,6 +104,8 @@ def normalize_target(raw: str) -> str | None:
     else:
         kind, value = "topic", raw
     value = value.strip()
+    if kind == "source":
+        value = value.lower()  # sources are matched case-insensitively
     if kind == "topic":
         value = re.sub(r"[\s_]+", "-", value.lower())
         if not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,40}", value):
@@ -215,9 +217,11 @@ def process_issue(issue: dict, comments: list[dict], events: list[dict], users: 
         if login not in users or comment.get("id") in seen_comments:
             continue
         for action, target in parse_commands(comment.get("body", "")):
+            # Rules use the sync clock like checkbox events, so a /reset clears every tick
+            # recorded in this or an earlier sync, even ticks the fallback sync catches up on.
             new.append({
-                "ts": _iso(_parse_ts(comment.get("created_at", ts))), "type": "rule", "issue": number,
-                "comment": comment.get("id"), "action": action, "target": target,
+                "ts": ts, "type": "rule", "issue": number, "comment": comment.get("id"),
+                "comment_at": comment.get("created_at", ""), "action": action, "target": target,
             })
 
     for label in FORMAT_LABELS:
@@ -277,7 +281,7 @@ def build_profile(events: list[dict], now: datetime, interests: str = "") -> dic
         signals += 1
         weight = (1 if signal == "up" else -1) * _decay(ts, now)
         source = event.get("source") or ""
-        if source and active(f"source:{source}", ts):
+        if source and active(f"source:{source.lower()}", ts):
             sources[source] += weight
         for tag in event.get("tags") or []:
             if active(f"topic:{tag}", ts):

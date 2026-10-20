@@ -54,7 +54,7 @@ def test_rendered_body_round_trips_through_parser():
 def test_parse_commands():
     text = "thanks!\n/more agents\n/LESS source:Databricks\n/mute topic:Hiring News\n/reset\n/more\nnot /mute x"
     assert parse_commands(text) == [
-        ("more", "topic:agents"), ("less", "source:Databricks"), ("mute", "topic:hiring-news"), ("reset", None),
+        ("more", "topic:agents"), ("less", "source:databricks"), ("mute", "topic:hiring-news"), ("reset", None),
     ]
     assert parse_commands("/reset topic:agents") == [("reset", "topic:agents")]
     assert parse_commands("/more <script>") == []
@@ -102,7 +102,7 @@ def test_build_profile_decay_rules_reset_and_labels():
         _ev(20, type="article", id="c", signal="up", title="Reset me", source="Old", tags=["policy"]),
         _ev(18, type="rule", action="mute", target="topic:hiring"),
         _ev(17, type="rule", action="reset", target=None),
-        _ev(2, type="rule", action="less", target="source:Databricks"),
+        _ev(2, type="rule", action="less", target="source:databricks"),
         _ev(2, type="rule", action="more", target="topic:evals"),
         _ev(1, type="rule", action="reset", target="topic:evals"),
         _ev(3, type="label", label="too-long", present=True),
@@ -111,7 +111,7 @@ def test_build_profile_decay_rules_reset_and_labels():
     profile = build_profile(events, NOW, "LLM evals")
     assert profile["sources"] == {"Cloud": -0.64, "Lab": 1.0}  # 2 weeks old -> 0.8**2
     assert profile["topics"] == {"agents": 0.36, "infra": -0.64}
-    assert profile["rules"] == {"source:Databricks": "less"}  # mute cleared by /reset, evals reset
+    assert profile["rules"] == {"source:databricks": "less"}  # mute cleared by /reset, evals reset
     assert profile["format"] == {"top_n_delta": -3}
     assert profile["categories"] == {"product": -1.0}
     assert profile["signals"] == 4
@@ -119,7 +119,25 @@ def test_build_profile_decay_rules_reset_and_labels():
     prompt = profile_prompt(profile)
     assert "Interests: LLM evals" in prompt
     assert "Likes: agents, Lab" in prompt
-    assert "Dislikes: infra, Cloud, Databricks" in prompt
+    assert "Dislikes: infra, Cloud, databricks" in prompt
+
+
+def test_reset_clears_ticks_recorded_in_the_same_sync():
+    body, ranked = _body(("Agents launch", "Src", ("agents",), "top"))
+    comments = [{"id": 9, "body": "/reset", "user": {"login": "srinikhil-07"}, "created_at": "2026-10-18T07:00:00Z"}]
+    events = process_issue(_tick_issue(body, ranked), comments, [], OWNER, NOW)
+    profile = build_profile(events, NOW)
+    assert profile["signals"] == 0 and profile["sources"] == {} and profile["topics"] == {}
+
+
+def test_source_rules_are_case_insensitive():
+    events = [
+        _ev(3, type="article", id="a", signal="down", title="T", source="Databricks", tags=[]),
+        _ev(2, type="rule", action="less", target=parse_commands("/less source:databricks")[0][1]),
+        _ev(1, type="rule", action="reset", target=parse_commands("/reset source:Databricks")[0][1]),
+    ]
+    profile = build_profile(events, NOW)
+    assert profile["rules"] == {} and profile["sources"] == {}
 
 
 class FakeClient:
@@ -148,7 +166,7 @@ def test_sync_appends_events_and_keeps_interests(tmp_path):
     profile = load_profile(tmp_path)
     assert profile["interests"] == "agents and evals"
     assert profile["sources"] == {"Lab": 1.0}
-    assert profile["rules"] == {"source:Databricks": "less"}
+    assert profile["rules"] == {"source:databricks": "less"}
 
 
 def _tick_issue(body, ranked):
