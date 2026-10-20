@@ -9,7 +9,7 @@ import re
 import tomllib
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Iterable
@@ -17,6 +17,7 @@ from urllib.parse import urlsplit, urlunsplit
 
 import feedparser
 
+from . import content as content_mod
 from . import scraper
 
 log = logging.getLogger(__name__)
@@ -72,6 +73,12 @@ class Article:
     published: datetime
     summary: str = ""
     category: str = "product"
+    # Full article text (not rendered or committed); see content.py.
+    content: str = field(default="", repr=False, compare=False)
+    # Where ``content`` came from: "feed", "page", "excerpt", or "" when not loaded.
+    content_source: str = ""
+    # Other sources that cross-posted the same announcement.
+    also_in: tuple[str, ...] = ()
 
 
 def load_feeds(path: str | Path) -> list[Feed]:
@@ -157,7 +164,11 @@ def parse_feed(feed: Feed, source) -> list[Article]:
         tags = _tags(entry)
         if not feed.ai_only and not is_ai_related(title, summary, tags):
             continue
-        articles.append(Article(feed.name, title, link, published, summary, classify(feed, title, summary, tags)))
+        text = content_mod.feed_full_text(entry, summary)
+        articles.append(Article(
+            feed.name, title, link, published, summary, classify(feed, title, summary, tags),
+            content=text, content_source="feed" if text else "",
+        ))
     return articles
 
 
@@ -172,7 +183,8 @@ def scrape_feed(feed: Feed, fetch=None) -> list[Article]:
     articles = []
     for link in links:
         try:
-            raw_title, raw_summary, published = scraper.extract_article(fetch(link))
+            page = fetch(link)
+            raw_title, raw_summary, published = scraper.extract_article(page)
         except Exception:  # noqa: BLE001 - skip broken article pages
             log.warning("Could not scrape article %s for %s", link, feed.name, exc_info=True)
             continue
@@ -183,7 +195,12 @@ def scrape_feed(feed: Feed, fetch=None) -> list[Article]:
             continue
         if not feed.ai_only and not is_ai_related(title, summary):
             continue
-        articles.append(Article(feed.name, title, link, published, summary, classify(feed, title, summary)))
+        # The page is already downloaded, so extract its text in the same pass.
+        text = content_mod.extract_main_text(page)
+        articles.append(Article(
+            feed.name, title, link, published, summary, classify(feed, title, summary),
+            content=text, content_source="page" if text else "",
+        ))
     return articles
 
 
@@ -215,7 +232,7 @@ def fetch_all(feeds: Iterable[Feed], max_workers: int = 8) -> list[Article]:
     return [article for articles in results for article in articles]
 
 
-def _normalize_link(link: str) -> str:
+def normalize_link(link: str) -> str:
     parts = urlsplit(link.strip())
     return urlunsplit((parts.scheme.lower(), parts.netloc.lower(), parts.path.rstrip("/"), "", ""))
 
@@ -228,7 +245,7 @@ def select_articles(articles: Iterable[Article], period: str, now: datetime) -> 
     for article in sorted(articles, key=lambda a: a.published, reverse=True):
         if not (start < article.published <= now):
             continue
-        key = _normalize_link(article.link)
+        key = normalize_link(article.link)
         if key in seen:
             continue
         seen.add(key)
@@ -245,7 +262,7 @@ def digest_path(output_dir: str | Path, period: str, now: datetime) -> Path:
     return Path(output_dir) / period / name
 
 
-def _escape_md(text: str) -> str:
+def escape_md(text: str) -> str:
     return re.sub(r"([\[\]])", r"\\\1", text)
 
 
@@ -275,7 +292,7 @@ def render_markdown(articles: list[Article], period: str, now: datetime) -> str:
             lines.append(f"### {source}")
             lines.append("")
             for article in by_source[source]:
-                lines.append(f"- [{_escape_md(article.title)}]({article.link}) — {article.published:%Y-%m-%d}")
+                lines.append(f"- [{escape_md(article.title)}]({article.link}) — {article.published:%Y-%m-%d}")
                 if article.summary:
                     lines.append(f"  > {article.summary}")
             lines.append("")
