@@ -7,8 +7,8 @@ name: AI News Digest
 # Delivered digests are committed under digests/, which marks them as sent so
 # each digest goes out exactly once even if a run is delayed or retried.
 # Reader feedback from earlier digest issues is synced into feedback/ first and
-# used to rank the new digest. LLM summaries are used when the LLM_API_KEY
-# secret is set (any OpenAI-compatible endpoint; see README).
+# used to rank the new digest. Each article links to GitHub Copilot Chat for an
+# on-demand summary.
 on:
   schedule:
     - cron: "5 8 * * 0"
@@ -42,13 +42,6 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      # Article text and LLM summaries are cached between runs, never committed.
-      - uses: actions/cache@v4
-        with:
-          path: .cache/news_aggregator
-          key: news-cache-${{ github.run_id }}
-          restore-keys: news-cache-
-
       # Fallback for feedback.yml: re-read recent digest issues before ranking.
       - name: Sync reader feedback
         continue-on-error: true
@@ -63,19 +56,13 @@ jobs:
           PERIOD: ${{ inputs.period || 'scheduled' }}
           DIGEST_TIMEZONE: ${{ vars.DIGEST_TIMEZONE || 'UTC' }}
           DIGEST_RANKED: ${{ vars.DIGEST_RANKED || 'true' }}
-          LLM_PROVIDER: ${{ vars.LLM_PROVIDER || 'openai' }}
-          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
-          LLM_MODEL: ${{ vars.LLM_MODEL }}
-          LLM_ENDPOINT: ${{ vars.LLM_ENDPOINT }}
-          LLM_MAX_CALLS: ${{ vars.LLM_MAX_CALLS }}
         run: |
           # Manual weekly sends go to a temp dir so they don't mark the scheduled digest as sent.
           output_dir=digests
           if [ "$PERIOD" != "scheduled" ]; then output_dir="$RUNNER_TEMP/manual-digests"; fi
-          # Without LLM_API_KEY the ranked digest is built from excerpts and keyword tags.
           extra=()
-          if [ "$DIGEST_RANKED" = "true" ]; then extra+=(--ranked --fetch-content); else LLM_PROVIDER=none; fi
-          LLM_PROVIDER="$LLM_PROVIDER" python -m news_aggregator --period "$PERIOD" --output-dir "$output_dir" \
+          if [ "$DIGEST_RANKED" = "true" ]; then extra+=(--ranked); fi
+          python -m news_aggregator --period "$PERIOD" --output-dir "$output_dir" \
             --issue-dir "$RUNNER_TEMP/issues" "${extra[@]}"
 
       - name: Open notification issues
@@ -89,7 +76,7 @@ jobs:
           for path in $DIGEST_PATHS; do
             title="$(head -n 1 "$path" | sed 's/^# //') — $(basename "$path" .md)"
             # GitHub issue bodies are limited to 65536 characters. Ranked digests come with an
-            # issue-sized body (shortened summaries + link to the committed digest).
+            # issue-sized body (shortened excerpts + link to the committed digest).
             issue_body="$RUNNER_TEMP/issues/$(basename "$path")"
             if [ -f "$issue_body" ]; then cp "$issue_body" "$RUNNER_TEMP/body.md"; else head -c 60000 "$path" > "$RUNNER_TEMP/body.md"; fi
             # Assigning the owner guarantees a notification email; fall back if the owner is an org.

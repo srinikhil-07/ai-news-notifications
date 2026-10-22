@@ -9,7 +9,7 @@ import re
 import tomllib
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Iterable
@@ -17,7 +17,6 @@ from urllib.parse import quote, urlsplit, urlunsplit
 
 import feedparser
 
-from . import content as content_mod
 from . import scraper
 
 log = logging.getLogger(__name__)
@@ -73,10 +72,6 @@ class Article:
     published: datetime
     summary: str = ""
     category: str = "product"
-    # Full article text (not rendered or committed); see content.py.
-    content: str = field(default="", repr=False, compare=False)
-    # Where ``content`` came from: "feed", "page", "excerpt", or "" when not loaded.
-    content_source: str = ""
     # Other sources that cross-posted the same announcement.
     also_in: tuple[str, ...] = ()
 
@@ -164,11 +159,7 @@ def parse_feed(feed: Feed, source) -> list[Article]:
         tags = _tags(entry)
         if not feed.ai_only and not is_ai_related(title, summary, tags):
             continue
-        text = content_mod.feed_full_text(entry, summary)
-        articles.append(Article(
-            feed.name, title, link, published, summary, classify(feed, title, summary, tags),
-            content=text, content_source="feed" if text else "",
-        ))
+        articles.append(Article(feed.name, title, link, published, summary, classify(feed, title, summary, tags)))
     return articles
 
 
@@ -195,12 +186,7 @@ def scrape_feed(feed: Feed, fetch=None) -> list[Article]:
             continue
         if not feed.ai_only and not is_ai_related(title, summary):
             continue
-        # The page is already downloaded, so extract its text in the same pass.
-        text = content_mod.extract_main_text(page)
-        articles.append(Article(
-            feed.name, title, link, published, summary, classify(feed, title, summary),
-            content=text, content_source="page" if text else "",
-        ))
+        articles.append(Article(feed.name, title, link, published, summary, classify(feed, title, summary)))
     return articles
 
 

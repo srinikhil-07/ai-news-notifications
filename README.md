@@ -9,9 +9,9 @@ split into **Research** and **Product & Announcements** sections:
 Each digest with new posts is opened as a GitHub **issue** (label `ai-news`) and assigned to the
 repository owner, so GitHub emails it to you.
 
-The digest is **personalised**. The full text of each article is loaded and, if an LLM key is
-configured, the articles are summarised. Your 👍/👎 feedback on the issue decides which articles
-get detailed summaries next week (see [Summaries and feedback](#summaries-and-feedback)).
+The digest is **personalised**. Your 👍/👎 feedback on the issue decides which articles are
+ranked as top picks next week, and every article has a **✨ Summarise with Copilot** link for an
+on-demand summary (see [Summaries and feedback](#summaries-and-feedback)).
 
 ## Sources
 
@@ -55,47 +55,16 @@ committed but no issue is opened.
 
 ## Summaries and feedback
 
-**Article text.** The text comes from the full post in the feed (`content:encoded` / Atom
-`<content>`) when there is one, otherwise from the article page. Navigation, code blocks, figures
-and reference sections are dropped, and the text is capped at about 4k tokens. Only articles in
-the digest are fetched. If neither source works (JavaScript-only pages, paywalls), the excerpt is
-used and the summary is marked _(from excerpt)_. Article text and LLM results are cached in
-`.cache/` with `actions/cache` and are never committed.
+Set the `DIGEST_RANKED` repository variable to `false` for the original unranked digest without
+feedback (default `true`). If the same announcement was posted on several blogs, the ranked digest
+shows it once with "also on …".
 
-**LLM summaries.** GitHub Models was retired on 2026-07-30, so summaries use any OpenAI-compatible
-chat completions endpoint (OpenAI, Azure AI Foundry, …). Add the repository secret `LLM_API_KEY`
-and, optionally, these variables:
+**Tiers.** Each article gets keyword topic tags (agents, evals, infra, …) and is scored from your
+feedback (source, topic tags, category and rules). Articles are split into three tiers:
 
-| Variable | Default | Meaning |
-|---|---|---|
-| `LLM_MODEL` | `gpt-4o-mini` | Model name. |
-| `LLM_ENDPOINT` | `https://api.openai.com/v1` | Base URL (HTTPS) of an OpenAI-compatible API. |
-| `LLM_MAX_CALLS` | `40` | Call budget per run. About 20 are used each week. |
-| `LLM_PROVIDER` | `openai` | Set to `none` to never call an LLM. |
-| `DIGEST_RANKED` | `true` | Set to `false` for the original unranked digest without feedback. |
-
-Each week the LLM does three things:
-
-1. **Triage.** Batches of 20 articles get a one-line gist, topic tags, a relevance score for your
-   profile, and a research/product label.
-2. **Detail.** Each top pick gets a short summary, key points, "why it matters" and its kind
-   (research, product launch or incremental update).
-3. **Overview.** One call writes the "This week in AI" overview.
-
-Article text is treated as untrusted input. The model's output is sanitised: links, HTML and
-@-mentions are removed. Results are cached by URL, content hash and prompt version.
-
-If the rate limit or the call budget is hit, summaries fall back step by step: detailed →
-one-line → excerpt. Without `LLM_API_KEY`, the ranked digest still works using excerpts and
-keyword tags. If the same announcement was posted on several blogs, it appears once with
-"also on …".
-
-**Tiers.** Articles are scored from your feedback (source, topic tags, category and rules) plus
-the LLM relevance score, and split into three tiers:
-
-- **⭐ Top picks** (12 by default): detailed summaries.
+- **⭐ Top picks** (12 by default): the feed's excerpt.
   - Up to 2 of these are "🔍 exploring" slots for sources and topics you haven't rated yet.
-- **Research / Product & Announcements**: one-line gists.
+- **Research / Product & Announcements**: the feed's excerpt.
 - **Collapsed list**: title and link only.
 
 Nothing is dropped. The footer says what the ranking used, for example _Ranked using 14 feedback
@@ -112,8 +81,8 @@ matters. This needs no API key and uses your own Copilot plan.
   **Auto** unless you changed it.
 - Copilot needs web access (Bing search) to read the article. Otherwise it may only answer from
   the URL or the title.
-- When an issue has to be shortened, collapsed-list articles lose this link first, together with
-  their checkboxes.
+- When an issue has to be shortened, middle-tier excerpts are dropped first. Then collapsed-list
+  articles lose this link, together with their checkboxes.
 
 **Giving feedback** on an `ai-news` issue:
 
@@ -135,9 +104,7 @@ organisation.
 Feedback fades by 20% per week, so newer feedback counts more. `/more`, `/less` and `/mute`
 override what was learned from the boxes.
 
-To seed the profile before you've given any feedback, edit `"interests"` in
-`feedback/profile.json`, for example `"agents, evals, inference infrastructure"`. Note that the
-profile and summaries are committed, so they are public if the repository is public.
+The profile and feedback log are committed, so they are public if the repository is public.
 
 ## Usage
 
@@ -150,15 +117,12 @@ python -m news_aggregator --period scheduled --timezone Asia/Kolkata  # what the
 
 Options: `--send-hour` (default 8) and `--weekly-day` (default `sunday`) change the schedule.
 
-- `--fetch-content` loads each article's full text.
 - `--ranked` builds the personalised digest with tiers and feedback boxes.
-- `--llm openai` adds LLM summaries and implies both flags above. It reads `LLM_API_KEY`.
 - `--top-n` sets the number of top picks.
 - `--issue-dir` also writes a version of each digest that fits in an issue.
 
 ```bash
-python -m news_aggregator --period weekly --ranked --stdout       # ranked digest, no LLM
-LLM_API_KEY=... python -m news_aggregator --period weekly --llm openai --stdout
+python -m news_aggregator --period weekly --ranked --stdout       # ranked digest
 python -m news_aggregator.feedback sync --repo owner/name         # pull feedback from issues (needs GH_TOKEN)
 python -m news_aggregator.feedback rebuild                        # rebuild profile.json from events.jsonl
 ```

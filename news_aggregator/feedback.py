@@ -12,8 +12,7 @@ Feedback comes from the ``ai-news`` digest issues:
 
 Only the repository owner's comments (plus ``FEEDBACK_USERS``) are counted.
 Every change is appended to ``feedback/events.jsonl``; ``feedback/profile.json``
-is rebuilt from the log with weekly exponential decay. The ``interests`` field
-in ``profile.json`` is free text you can edit to seed the profile.
+is rebuilt from the log with weekly exponential decay.
 
 Run ``python -m news_aggregator.feedback sync`` to read recent issues (the
 digest workflow does this first), or ``--issue N`` for one issue (feedback.yml).
@@ -237,7 +236,7 @@ def _decay(ts: datetime, now: datetime) -> float:
     return DECAY_PER_WEEK ** weeks
 
 
-def build_profile(events: list[dict], now: datetime, interests: str = "") -> dict:
+def build_profile(events: list[dict], now: datetime) -> dict:
     """Derive the reader profile from the event log (see module docs)."""
     events = sorted(events, key=lambda e: _parse_ts(e.get("ts", "")))  # stable: keeps log order on ties
     rules: dict[str, str] = {}
@@ -270,8 +269,6 @@ def build_profile(events: list[dict], now: datetime, interests: str = "") -> dic
 
     sources: dict[str, float] = defaultdict(float)
     topics: dict[str, float] = defaultdict(float)
-    liked: list[tuple[datetime, str]] = []
-    disliked: list[tuple[datetime, str]] = []
     signals = 0
     for event in article_final.values():
         signal = event.get("signal")
@@ -286,8 +283,6 @@ def build_profile(events: list[dict], now: datetime, interests: str = "") -> dic
         for tag in event.get("tags") or []:
             if active(f"topic:{tag}", ts):
                 topics[tag] += weight
-        if event.get("title"):
-            (liked if signal == "up" else disliked).append((ts, event["title"]))
 
     categories: dict[str, float] = defaultdict(float)
     top_n_delta = 0.0
@@ -310,15 +305,12 @@ def build_profile(events: list[dict], now: datetime, interests: str = "") -> dic
         return {k: round(v, 3) for k, v in sorted(weights.items()) if abs(v) >= 0.001}
 
     return {
-        "interests": interests,
         "signals": signals,
         "sources": rounded(sources),
         "topics": rounded(topics),
         "categories": rounded(categories),
         "rules": dict(sorted(rules.items())),
         "format": {"top_n_delta": int(round(top_n_delta))},
-        "liked_titles": [t for _, t in sorted(liked, reverse=True)[:10]],
-        "disliked_titles": [t for _, t in sorted(disliked, reverse=True)[:10]],
     }
 
 
@@ -340,38 +332,12 @@ def load_profile(feedback_dir: str | Path) -> dict:
 
 
 def rebuild_profile(feedback_dir: str | Path, now: datetime) -> dict:
-    """Rebuild ``profile.json`` from ``events.jsonl``, keeping the ``interests`` text."""
+    """Rebuild ``profile.json`` from ``events.jsonl``."""
     feedback_dir = Path(feedback_dir)
-    interests = load_profile(feedback_dir).get("interests", "") or ""
-    profile = build_profile(load_events(feedback_dir / EVENTS_FILE), now, interests)
+    profile = build_profile(load_events(feedback_dir / EVENTS_FILE), now)
     feedback_dir.mkdir(parents=True, exist_ok=True)
     (feedback_dir / PROFILE_FILE).write_text(json.dumps(profile, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     return profile
-
-
-def profile_prompt(profile: dict, threshold: float = 0.3) -> str:
-    """Describe the profile for the triage prompt ("likes: …, dislikes: …")."""
-    def names(weights: dict, positive: bool) -> list[str]:
-        items = [(k, v) for k, v in (weights or {}).items() if (v >= threshold if positive else v <= -threshold)]
-        return [k for k, _ in sorted(items, key=lambda kv: -abs(kv[1]))[:8]]
-
-    rules = profile.get("rules") or {}
-    likes = names(profile.get("topics"), True) + names(profile.get("sources"), True)
-    likes += [t.split(":", 1)[1] for t, a in rules.items() if a == "more"]
-    dislikes = names(profile.get("topics"), False) + names(profile.get("sources"), False)
-    dislikes += [t.split(":", 1)[1] for t, a in rules.items() if a in ("less", "mute")]
-    parts = []
-    if profile.get("interests"):
-        parts.append(f"Interests: {str(profile['interests'])[:500]}")
-    if likes:
-        parts.append("Likes: " + ", ".join(dict.fromkeys(likes)))
-    if dislikes:
-        parts.append("Dislikes: " + ", ".join(dict.fromkeys(dislikes)))
-    if profile.get("liked_titles"):
-        parts.append("Recently liked: " + "; ".join(profile["liked_titles"][:5]))
-    if profile.get("disliked_titles"):
-        parts.append("Recently disliked: " + "; ".join(profile["disliked_titles"][:5]))
-    return "\n".join(parts)
 
 
 # ------------------------------------------------------------------ GitHub API

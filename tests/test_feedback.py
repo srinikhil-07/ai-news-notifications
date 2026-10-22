@@ -2,20 +2,17 @@ from datetime import datetime, timedelta, timezone
 
 from news_aggregator.feedback import (
     EVENTS_FILE,
-    PROFILE_FILE,
     build_profile,
     load_events,
     load_profile,
     parse_commands,
     parse_issue_body,
     process_issue,
-    profile_prompt,
     sync,
 )
 from news_aggregator.ranking import Ranked, render_ranked
-from news_aggregator.summarize import Triage
 
-from .test_summarize import art
+from .test_topics import art
 
 NOW = datetime(2026, 10, 18, 8, tzinfo=timezone.utc)
 OWNER = {"srinikhil-07"}
@@ -25,8 +22,8 @@ def _body(*items):
     ranked = []
     for title, source, tags, tier in items:
         a = art(title, source)
-        ranked.append(Ranked(a, f"{abs(hash(title)) % 16**10:010x}", Triage("gist", tags), tier=tier))
-    return render_ranked(ranked, [], "weekly", NOW, {}), ranked
+        ranked.append(Ranked(a, f"{abs(hash(title)) % 16**10:010x}", tags, tier=tier))
+    return render_ranked(ranked, "weekly", NOW, {}), ranked
 
 
 def _tick(body, ranked, index, signal):
@@ -108,18 +105,13 @@ def test_build_profile_decay_rules_reset_and_labels():
         _ev(3, type="label", label="too-long", present=True),
         _ev(3, type="label", label="too-much-product", present=True),
     ]
-    profile = build_profile(events, NOW, "LLM evals")
+    profile = build_profile(events, NOW)
     assert profile["sources"] == {"Cloud": -0.64, "Lab": 1.0}  # 2 weeks old -> 0.8**2
     assert profile["topics"] == {"agents": 0.36, "infra": -0.64}
     assert profile["rules"] == {"source:databricks": "less"}  # mute cleared by /reset, evals reset
     assert profile["format"] == {"top_n_delta": -3}
     assert profile["categories"] == {"product": -1.0}
     assert profile["signals"] == 4
-    assert profile["liked_titles"] == ["Agents A"] and profile["disliked_titles"] == ["Infra B"]
-    prompt = profile_prompt(profile)
-    assert "Interests: LLM evals" in prompt
-    assert "Likes: agents, Lab" in prompt
-    assert "Dislikes: infra, Cloud, databricks" in prompt
 
 
 def test_reset_clears_ticks_recorded_in_the_same_sync():
@@ -154,17 +146,15 @@ class FakeClient:
         return self._comments.get(number, [])
 
 
-def test_sync_appends_events_and_keeps_interests(tmp_path):
+def test_sync_appends_events(tmp_path):
     body, ranked = _body(("Agents launch", "Lab", ("agents",), "top"))
     client = FakeClient([_tick_issue(body, ranked)], {7: [
         {"id": 5, "body": "/less source:Databricks", "user": {"login": "SriNikhil-07"}, "created_at": "2026-10-18T09:00:00Z"},
     ]})
-    (tmp_path / PROFILE_FILE).write_text('{"interests": "agents and evals"}')
     sync(client, tmp_path, OWNER, NOW)
     sync(client, tmp_path, OWNER, NOW, issue_number=7)
     assert len(load_events(tmp_path / EVENTS_FILE)) == 2
     profile = load_profile(tmp_path)
-    assert profile["interests"] == "agents and evals"
     assert profile["sources"] == {"Lab": 1.0}
     assert profile["rules"] == {"source:databricks": "less"}
 

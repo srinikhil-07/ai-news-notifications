@@ -1,5 +1,4 @@
 {
-  "interests": "",
   "signals": 0,
   "sources": {},
   "topics": {},
@@ -7,7 +6,5 @@
   "rules": {},
   "format": {
     "top_n_delta": 0
-  },
-  "liked_titles": [],
-  "disliked_titles": []
+  }
 }
