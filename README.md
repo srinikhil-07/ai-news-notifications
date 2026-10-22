@@ -49,6 +49,19 @@ once. If a run is delayed or fails, the next scheduled run catches up. The weekl
 previous Sunday 08:00 to this Sunday 08:00. If a period has no new posts, the digest is still
 committed but no issue is opened.
 
+## Summarise with Copilot
+
+Every article in the digest has a **✨ Summarise with Copilot** link. It opens
+[GitHub Copilot Chat](https://github.com/copilot) with a prompt asking for a summary of the
+article: key points and why it matters.
+
+- It runs on the Copilot plan of whoever clicks it. The repository calls no API and needs no key.
+- Issues can't show real buttons, so it's a link.
+- The link can't choose a model. Copilot Chat uses your current model picker selection, which is
+  **Auto** unless you changed it.
+- Copilot needs web access (Bing search) to read the article. Otherwise it may only answer from
+  the URL or the title.
+
 ## Usage
 
 ```bash
