@@ -62,6 +62,19 @@ article: key points and why it matters.
 - Copilot needs web access (Bing search) to read the article. Otherwise it may only answer from
   the URL or the title.
 
+### iPhone and iPad
+
+GitHub Mobile can interpret a Copilot link as an organization and show "organization not found."
+If this happens, copy the **Summarise with Copilot** link and paste it into **Safari's address bar**,
+then sign in to GitHub. Copy the summary link, not the article link, to preserve the prefilled prompt.
+Each new nonempty digest includes these fallback instructions; they also work for links in older issues.
+
+GitHub also documents [managing Universal Links on iOS](https://docs.github.com/en/get-started/using-github/github-mobile#managing-universal-links-for-github-mobile-on-ios):
+long-press a GitHub link and choose **Open** to open subsequent GitHub links in Safari.
+Choose **Open in GitHub** to switch back. This preference affects other GitHub links too.
+Issue Markdown cannot force Safari or fix the GitHub app's internal routing, so the links retain
+GitHub's supported Copilot URL rather than relying on an alternate hostname or redirect service.
+
 ## Usage
 
 ```bash

@@ -281,6 +281,13 @@ def render_markdown(articles: list[Article], period: str, now: datetime) -> str:
         lines.append("No new AI posts from the tracked blogs in this period.")
         return "\n".join(lines) + "\n"
 
+    lines.extend([
+        "> **iPhone / iPad:** If a Summarise with Copilot link opens an "
+        "'organization not found' error in GitHub Mobile, copy the link and "
+        "paste it into Safari's address bar. Sign in to GitHub there to use Copilot.",
+        "",
+    ])
+
     for category, heading in CATEGORY_TITLES.items():
         by_source: dict[str, list[Article]] = {}
         for article in articles:
