@@ -102,6 +102,19 @@ Nothing is dropped. The footer says what the ranking used, for example _Ranked u
 signals; boosted: agents; muted: Databricks_. If a digest is longer than an issue allows, the
 issue is shortened and links to the full digest in `digests/`.
 
+**Summarise with Copilot.** Every article, in both the ranked and the unranked digest, has a
+**✨ Summarise with Copilot** link. It opens [GitHub Copilot Chat](https://github.com/copilot) with
+a prompt asking for a high-level summary of the article: what's new, 3–5 key points and why it
+matters. This needs no API key and uses your own Copilot plan.
+
+- Issues can't show real buttons, so it's a link.
+- The link can't choose a model. Copilot Chat uses your current model picker selection, which is
+  **Auto** unless you changed it.
+- Copilot needs web access (Bing search) to read the article. Otherwise it may only answer from
+  the URL or the title.
+- When an issue has to be shortened, collapsed-list articles lose this link first, together with
+  their checkboxes.
+
 **Giving feedback** on an `ai-news` issue:
 
 - **Tick boxes.** Tick **👍 more like this** or **👎 less like this** under any article. This

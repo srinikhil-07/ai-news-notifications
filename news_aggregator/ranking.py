@@ -20,7 +20,7 @@ import math
 from dataclasses import dataclass
 from datetime import datetime
 
-from .aggregator import CATEGORY_TITLES, PERIODS, Article, escape_md
+from .aggregator import CATEGORY_TITLES, PERIODS, Article, copilot_link_md, escape_md
 from .feedback import article_marker, checkbox_lines
 from .summarize import Detail, Triage, article_id, fallback_triage
 
@@ -165,7 +165,7 @@ def footer_line(profile: dict) -> str:
     return "_" + "; ".join(parts) + "._"
 
 
-def _article_line(r: Ranked) -> str:
+def _article_line(r: Ranked, copilot: bool = True) -> str:
     a = r.article
     source = a.source.replace("·", "-")
     bits = [f"- **[{escape_md(a.title)}]({a.link})** · {escape_md(source)} · {a.published:%Y-%m-%d}"]
@@ -177,6 +177,8 @@ def _article_line(r: Ranked) -> str:
         bits.append("also on " + ", ".join(escape_md(s) for s in a.also_in))
     if r.exploring:
         bits.append("🔍 exploring")
+    if copilot:
+        bits.append(copilot_link_md(a.link))
     return " · ".join(bits) + f" {article_marker(r.id)}"
 
 
@@ -188,7 +190,7 @@ def _summary_text(r: Ranked) -> str:
 
 
 def _render_item(r: Ranked, level: int) -> list[str]:
-    lines = [_article_line(r)]
+    lines = [_article_line(r, copilot=r.tier != "low" or level < 3)]
     if r.tier == "top":
         detail = r.detail
         if detail and level < 1:
@@ -281,7 +283,7 @@ def render_issue_body(
     """Render the digest to fit in a GitHub issue body (``max_chars``).
 
     Detail is reduced step by step (key points → middle gists → low-tier
-    checkboxes) and, as a last resort, the body is cut at a line boundary.
+    checkboxes and Copilot links) and, as a last resort, the body is cut at a line boundary.
     The full version is the committed digest file, linked when available.
     """
     link = f" See the [full digest]({full_digest_url})." if full_digest_url else ""

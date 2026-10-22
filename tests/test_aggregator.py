@@ -150,7 +150,8 @@ def test_render_markdown_groups_by_category_and_source():
     product = md.index("## Product & Announcements")
     assert research < md.index("[Paper]") < product
     assert product < md.index("### DeepMind", product) < md.index("[Launch]") < md.index("### OpenAI")
-    assert r"[New \[model\]](https://o.ai/a) — 2026-10-04" in md
+    assert r"[New \[model\]](https://o.ai/a) — 2026-10-04 · [✨ Summarise with Copilot](https://github.com/copilot?prompt=Read%20https://o.ai/a%20and%20" in md
+    assert md.count("✨ Summarise with Copilot") == 3
     assert "  > Summary" in md
 
 

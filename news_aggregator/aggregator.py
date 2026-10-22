@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Iterable
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import quote, urlsplit, urlunsplit
 
 import feedparser
 
@@ -266,6 +266,24 @@ def escape_md(text: str) -> str:
     return re.sub(r"([\[\]])", r"\\\1", text)
 
 
+COPILOT_CHAT_URL = "https://github.com/copilot"
+COPILOT_PROMPT = "Read {link} and give me a high-level summary: what's new, 3-5 key points, and why it matters."
+
+
+def copilot_summary_url(link: str) -> str:
+    """Link that opens GitHub Copilot Chat with a prompt to summarise ``link``.
+
+    ``?prompt=`` is the deep link GitHub's own docs use. The model can't be
+    chosen through the URL, so Copilot Chat uses the reader's current model
+    selection (Auto by default).
+    """
+    return f"{COPILOT_CHAT_URL}?prompt={quote(COPILOT_PROMPT.format(link=link), safe=':/')}"
+
+
+def copilot_link_md(link: str) -> str:
+    return f"[✨ Summarise with Copilot]({copilot_summary_url(link)})"
+
+
 def render_markdown(articles: list[Article], period: str, now: datetime) -> str:
     start = now - PERIODS[period]
     title = "Daily" if period == "daily" else "Weekly"
@@ -292,7 +310,7 @@ def render_markdown(articles: list[Article], period: str, now: datetime) -> str:
             lines.append(f"### {source}")
             lines.append("")
             for article in by_source[source]:
-                lines.append(f"- [{escape_md(article.title)}]({article.link}) — {article.published:%Y-%m-%d}")
+                lines.append(f"- [{escape_md(article.title)}]({article.link}) — {article.published:%Y-%m-%d} · {copilot_link_md(article.link)}")
                 if article.summary:
                     lines.append(f"  > {article.summary}")
             lines.append("")

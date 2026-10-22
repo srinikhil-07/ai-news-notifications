@@ -1,7 +1,10 @@
 from datetime import datetime, timezone
 from pathlib import Path
 
+from urllib.parse import unquote
+
 from news_aggregator import __main__ as cli
+from news_aggregator.aggregator import COPILOT_PROMPT, copilot_summary_url
 from news_aggregator.feedback import parse_issue_body
 from news_aggregator.ranking import (
     assign_tiers,
@@ -68,11 +71,12 @@ def test_render_tiers_overview_and_footer():
     md = render_ranked(ranked, ["Big week."], "weekly", NOW, {})
     assert md.index("## This week in AI") < md.index("## ⭐ Top picks") < md.index("## Product & Announcements")
     assert "  > Long summary.\n  >\n  > - Point A\n  > - Point B\n  >\n  > _Why it matters:_ Because." in md
-    assert " · research <!-- a:" in md
+    assert " · research · [✨ Summarise with Copilot](https://github.com/copilot?prompt=" in md
     assert "<details>\n<summary>1 more article(s), lightly summarised</summary>" in md
     assert "_(from excerpt)_" in md
     assert "No feedback yet" in md
     assert md.count("👍 more like this") == 6
+    assert md.count("✨ Summarise with Copilot") == 6
 
 
 def test_footer_transparency():
@@ -92,10 +96,12 @@ def test_issue_body_fits_budget_and_keeps_feedback_markers():
             r.detail = Detail("S " * 200, ("P " * 50,) * 5, "W " * 100, "research")
     full = render_ranked(ranked, [], "weekly", NOW, {})
     url = "https://github.com/o/r/blob/main/digests/weekly/2026-W42.md"
-    body = render_issue_body(ranked, [], "weekly", NOW, {}, url, max_chars=30000)
-    assert len(full) > 30000 >= len(body)
+    body = render_issue_body(ranked, [], "weekly", NOW, {}, url, max_chars=45000)
+    assert len(full) > 45000 >= len(body)
     assert "[full digest](" + url + ")" in body
     assert len(parse_issue_body(body)[0]) == 100
+    shortest = render_ranked(ranked, [], "weekly", NOW, {}, level=3)
+    assert shortest.count("✨ Summarise with Copilot") == 52  # top + middle only
     tiny = render_issue_body(ranked, [], "weekly", NOW, {}, url, max_chars=5000)
     assert len(tiny) <= 5000 and "Truncated" in tiny
     assert tiny.count("<details>") == tiny.count("</details>")
@@ -135,3 +141,20 @@ def test_issue_link_only_for_repo_relative_paths(monkeypatch, tmp_path):
     monkeypatch.setenv("GITHUB_REF_NAME", "main")
     assert cli._full_digest_url(Path("digests/weekly/x.md")) == "https://github.com/o/r/blob/main/digests/weekly/x.md"
     assert cli._full_digest_url(tmp_path / "x.md") == ""
+
+
+def test_copilot_summary_url_encodes_article_link():
+    link = "https://example.com/post?id=1&ref=feed#top"
+    url = copilot_summary_url(link)
+    assert url.startswith("https://github.com/copilot?prompt=Read%20https://example.com/post%3Fid%3D1%26ref%3Dfeed%23top%20")
+    assert unquote(url.split("?prompt=", 1)[1]) == COPILOT_PROMPT.format(link=link)
+    assert not set(url) & set(" ()[]<>\"&#")
+
+
+def test_copilot_link_keeps_feedback_parseable():
+    a = art("Agents (part 1)", link="https://example.com/a?id=1&x=y")
+    md = render_ranked(assign_tiers([a], {}, {}, top_n=1), [], "weekly", NOW, {})
+    assert "[✨ Summarise with Copilot](https://github.com/copilot?prompt=Read%20https://example.com/a%3Fid%3D1%26x%3Dy%20" in md
+    items = parse_issue_body(md)[0]
+    assert list(items) == [article_id(a)]
+    assert items[article_id(a)]["title"] == "Agents (part 1)"
