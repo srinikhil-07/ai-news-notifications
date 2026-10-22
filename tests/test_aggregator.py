@@ -156,6 +156,9 @@ def test_render_markdown_groups_by_category_and_source():
     assert r"[New \[model\]](https://o.ai/a) — 2026-10-04 · [✨ Summarise with Copilot](https://github.com/copilot?prompt=Summarise%20https://o.ai/a:%20key%20points" in md
     assert md.count("✨ Summarise with Copilot") == 3
     assert "  > Summary" in md
+    assert md.count("**iPhone / iPad:**") == 1
+    assert md.index("**iPhone / iPad:**") < research
+    assert "copy the link and paste it into Safari's address bar" in md
 
 
 def test_render_markdown_omits_empty_category():
@@ -189,6 +192,7 @@ def test_render_markdown_empty():
     md = render_markdown([], "weekly", NOW)
     assert "# Weekly AI News Digest" in md
     assert "No new AI posts" in md
+    assert "Safari" not in md
 
 
 def test_clean_text_truncates():
