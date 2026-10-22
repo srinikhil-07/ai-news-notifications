@@ -10,18 +10,7 @@ from datetime import datetime, time, timezone, tzinfo
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from .aggregator import (
-    PERIODS,
-    Article,
-    digest_path,
-    fetch_all,
-    load_feeds,
-    render_markdown,
-    select_articles,
-)
-from .feedback import load_profile
-from .ranking import DEFAULT_TOP_N, assign_tiers, render_issue_body, render_ranked
-from .topics import merge_crossposts
+from .aggregator import PERIODS, digest_path, fetch_all, load_feeds, render_markdown, select_articles
 
 WEEKDAYS = ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
 
@@ -80,11 +69,6 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--weekly-day", choices=WEEKDAYS, default="sunday",
                         help="Day the scheduled weekly digest is sent (default: sunday).")
     parser.add_argument("--stdout", action="store_true", help="Print the digest instead of writing a file.")
-    parser.add_argument("--ranked", action="store_true",
-                        help="Personalised digest: relevance tiers, feedback checkboxes and the feedback profile.")
-    parser.add_argument("--feedback-dir", default="feedback", help="Directory with the feedback profile.")
-    parser.add_argument("--top-n", type=int, default=DEFAULT_TOP_N, help="Articles in the top tier (default: 12).")
-    parser.add_argument("--issue-dir", help="Also write an issue-sized body for each digest into this directory.")
     args = parser.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
@@ -106,48 +90,21 @@ def main(argv: list[str] | None = None) -> int:
     total = 0
     for period, window_end in jobs:
         articles = select_articles(all_articles, period, window_end)
-        path = digest_path(args.output_dir, period, window_end)
-        issue_body = None
-        if args.ranked:
-            articles = merge_crossposts(articles)
-            markdown, issue_body = _render_ranked_digest(args, articles, period, window_end, path)
-        else:
-            markdown = render_markdown(articles, period, window_end)
+        markdown = render_markdown(articles, period, window_end)
         total += len(articles)
 
         if args.stdout:
             sys.stdout.write(markdown)
             continue
 
+        path = digest_path(args.output_dir, period, window_end)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(markdown, encoding="utf-8")
         written.append((path, len(articles)))
         logging.info("Wrote %d article(s) to %s", len(articles), path)
-        if args.issue_dir and issue_body is not None:
-            issue_path = Path(args.issue_dir) / path.name
-            issue_path.parent.mkdir(parents=True, exist_ok=True)
-            issue_path.write_text(issue_body, encoding="utf-8")
 
     _write_outputs(written, total)
     return 0
-
-
-def _full_digest_url(path: Path) -> str:
-    server = os.environ.get("GITHUB_SERVER_URL", "https://github.com")
-    repo = os.environ.get("GITHUB_REPOSITORY")
-    ref = os.environ.get("GITHUB_REF_NAME")
-    if not repo or not ref or path.is_absolute():
-        return ""
-    return f"{server}/{repo}/blob/{ref}/{path.as_posix()}"
-
-
-def _render_ranked_digest(args, articles: list[Article], period: str, window_end: datetime,
-                          path: Path) -> tuple[str, str]:
-    profile = load_profile(args.feedback_dir)
-    ranked = assign_tiers(articles, profile, top_n=args.top_n)
-    markdown = render_ranked(ranked, period, window_end, profile)
-    issue_body = render_issue_body(ranked, period, window_end, profile, _full_digest_url(path))
-    return markdown, issue_body
 
 
 def _write_outputs(written: list[tuple[Path, int]], total: int) -> None:

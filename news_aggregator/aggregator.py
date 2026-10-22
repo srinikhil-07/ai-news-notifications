@@ -72,8 +72,6 @@ class Article:
     published: datetime
     summary: str = ""
     category: str = "product"
-    # Other sources that cross-posted the same announcement.
-    also_in: tuple[str, ...] = ()
 
 
 def load_feeds(path: str | Path) -> list[Feed]:
@@ -174,8 +172,7 @@ def scrape_feed(feed: Feed, fetch=None) -> list[Article]:
     articles = []
     for link in links:
         try:
-            page = fetch(link)
-            raw_title, raw_summary, published = scraper.extract_article(page)
+            raw_title, raw_summary, published = scraper.extract_article(fetch(link))
         except Exception:  # noqa: BLE001 - skip broken article pages
             log.warning("Could not scrape article %s for %s", link, feed.name, exc_info=True)
             continue
@@ -218,7 +215,7 @@ def fetch_all(feeds: Iterable[Feed], max_workers: int = 8) -> list[Article]:
     return [article for articles in results for article in articles]
 
 
-def normalize_link(link: str) -> str:
+def _normalize_link(link: str) -> str:
     parts = urlsplit(link.strip())
     return urlunsplit((parts.scheme.lower(), parts.netloc.lower(), parts.path.rstrip("/"), "", ""))
 
@@ -231,7 +228,7 @@ def select_articles(articles: Iterable[Article], period: str, now: datetime) -> 
     for article in sorted(articles, key=lambda a: a.published, reverse=True):
         if not (start < article.published <= now):
             continue
-        key = normalize_link(article.link)
+        key = _normalize_link(article.link)
         if key in seen:
             continue
         seen.add(key)
@@ -248,12 +245,13 @@ def digest_path(output_dir: str | Path, period: str, now: datetime) -> Path:
     return Path(output_dir) / period / name
 
 
-def escape_md(text: str) -> str:
+def _escape_md(text: str) -> str:
     return re.sub(r"([\[\]])", r"\\\1", text)
 
 
 COPILOT_CHAT_URL = "https://github.com/copilot"
-COPILOT_PROMPT = "Read {link} and give me a high-level summary: what's new, 3-5 key points, and why it matters."
+# Kept short: the link is repeated for ~100 articles in a 60 KB issue body.
+COPILOT_PROMPT = "Summarise {link}: key points and why it matters."
 
 
 def copilot_summary_url(link: str) -> str:
@@ -296,7 +294,7 @@ def render_markdown(articles: list[Article], period: str, now: datetime) -> str:
             lines.append(f"### {source}")
             lines.append("")
             for article in by_source[source]:
-                lines.append(f"- [{escape_md(article.title)}]({article.link}) — {article.published:%Y-%m-%d} · {copilot_link_md(article.link)}")
+                lines.append(f"- [{_escape_md(article.title)}]({article.link}) — {article.published:%Y-%m-%d} · {copilot_link_md(article.link)}")
                 if article.summary:
                     lines.append(f"  > {article.summary}")
             lines.append("")
