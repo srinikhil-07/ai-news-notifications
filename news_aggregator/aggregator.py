@@ -249,19 +249,18 @@ def _escape_md(text: str) -> str:
     return re.sub(r"([\[\]])", r"\\\1", text)
 
 
-COPILOT_CHAT_URL = "https://github.com/copilot"
+COPILOT_LANDING_URL = "https://srinikhil-07.github.io/ai-news-notifications/copilot.html"
 # Kept short: the link is repeated for ~100 articles in a 60 KB issue body.
 COPILOT_PROMPT = "Summarise {link}: key points and why it matters."
 
 
 def copilot_summary_url(link: str) -> str:
-    """Link that opens GitHub Copilot Chat with a prompt to summarise ``link``.
+    """Open a browser landing page that forwards the summary prompt to Copilot.
 
-    ``?prompt=`` is the deep link GitHub's own docs use. The model can't be
-    chosen through the URL, so Copilot Chat uses the reader's current model
-    selection (Auto by default).
+    A non-GitHub host avoids GitHub Mobile's internal issue-link routing.
+    The fragment keeps the prompt out of the Pages server's request.
     """
-    return f"{COPILOT_CHAT_URL}?prompt={quote(COPILOT_PROMPT.format(link=link), safe=':/')}"
+    return f"{COPILOT_LANDING_URL}#prompt={quote(COPILOT_PROMPT.format(link=link), safe=':/')}"
 
 
 def copilot_link_md(link: str) -> str:
@@ -282,8 +281,8 @@ def render_markdown(articles: list[Article], period: str, now: datetime) -> str:
         return "\n".join(lines) + "\n"
 
     lines.extend([
-        "> **iPhone / iPad:** If a Summarise with Copilot link opens an "
-        "'organization not found' error in GitHub Mobile, copy the link and "
+        "> **iPhone / iPad:** Summary links open a browser landing page that forwards "
+        "to Copilot. If GitHub Mobile still opens, copy the link and "
         "paste it into Safari's address bar. Sign in to GitHub there to use Copilot.",
         "",
     ])
