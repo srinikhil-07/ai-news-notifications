@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; base-uri 'none'; form-action 'none'">
+  <title>Summarise with Copilot</title>
+  <script src="copilot.js" defer></script>
+</head>
+<body>
+  <h1>Summarise with Copilot</h1>
+  <p id="status">Preparing your summary prompt…</p>
+  <p><a id="continue" hidden>Continue to Copilot</a></p>
+  <p>If GitHub Mobile opens instead, open <a href="https://github.com/copilot" rel="noreferrer">github.com/copilot</a>
+    in Safari and paste this prompt:</p>
+  <textarea id="prompt" aria-label="Summary prompt" rows="5" cols="40" readonly></textarea>
+  <noscript>JavaScript is required to forward your prompt. Open Copilot in Safari and paste
+    the article URL with a request to summarise it.</noscript>
+</body>
+</html>

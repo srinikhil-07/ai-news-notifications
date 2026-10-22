@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
-from urllib.parse import unquote
+from urllib.parse import parse_qs, urlsplit
 
 import pytest
 
@@ -153,7 +153,7 @@ def test_render_markdown_groups_by_category_and_source():
     product = md.index("## Product & Announcements")
     assert research < md.index("[Paper]") < product
     assert product < md.index("### DeepMind", product) < md.index("[Launch]") < md.index("### OpenAI")
-    assert r"[New \[model\]](https://o.ai/a) — 2026-10-04 · [✨ Summarise with Copilot](https://github.com/copilot?prompt=Summarise%20https://o.ai/a:%20key%20points" in md
+    assert r"[New \[model\]](https://o.ai/a) — 2026-10-04 · [✨ Summarise with Copilot](https://srinikhil-07.github.io/ai-news-notifications/copilot.html#prompt=Summarise%20https://o.ai/a:%20key%20points" in md
     assert md.count("✨ Summarise with Copilot") == 3
     assert "  > Summary" in md
     assert md.count("**iPhone / iPad:**") == 1
@@ -221,9 +221,18 @@ def test_cli_writes_digest(tmp_path, monkeypatch):
     assert "article_count=3" in gh_output.read_text()
 
 
-def test_copilot_summary_url_encodes_article_link():
-    link = "https://example.com/post?id=1&ref=feed#top"
+@pytest.mark.parametrize("link", [
+    "https://example.com/post?id=1&ref=feed#top",
+    "https://example.com/a(b)[c]?q=AI+ML&name=café%20news",
+    'https://example.com/?q=<script>alert("x")</script>',
+])
+def test_copilot_summary_url_encodes_article_link(link):
     url = copilot_summary_url(link)
-    assert url.startswith("https://github.com/copilot?prompt=Summarise%20https://example.com/post%3Fid%3D1%26ref%3Dfeed%23top:%20")
-    assert unquote(url.split("?prompt=", 1)[1]) == COPILOT_PROMPT.format(link=link)
-    assert not set(url) & set(" ()[]<>\"&#")
+    parts = urlsplit(url)
+    assert parts.scheme == "https"
+    assert parts.netloc == "srinikhil-07.github.io"
+    assert parts.path == "/ai-news-notifications/copilot.html"
+    assert not parts.query
+    assert parse_qs(parts.fragment) == {"prompt": [COPILOT_PROMPT.format(link=link)]}
+    assert not set(url) & set(" ()[]<>\"&")
+    assert url.count("#") == 1
