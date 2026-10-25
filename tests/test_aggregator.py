@@ -153,7 +153,7 @@ def test_render_markdown_groups_by_category_and_source():
     product = md.index("## Product & Announcements")
     assert research < md.index("[Paper]") < product
     assert product < md.index("### DeepMind", product) < md.index("[Launch]") < md.index("### OpenAI")
-    assert r"[New \[model\]](https://o.ai/a) — 2026-10-04 · [✨ Summarise with Copilot](https://srinikhil-07.github.io/ai-news-notifications/copilot.html#prompt=Summarise%20https://o.ai/a:%20key%20points" in md
+    assert r"[New \[model\]](https://o.ai/a) — 2026-10-04 · [✨ Summarise with Copilot](https://github.com/copilot?prompt=Summarise%20https://o.ai/a:%20key%20points" in md
     assert md.count("✨ Summarise with Copilot") == 3
     assert "  > Summary" in md
     assert md.count("**iPhone / iPad:**") == 1
@@ -230,9 +230,8 @@ def test_copilot_summary_url_encodes_article_link(link):
     url = copilot_summary_url(link)
     parts = urlsplit(url)
     assert parts.scheme == "https"
-    assert parts.netloc == "srinikhil-07.github.io"
-    assert parts.path == "/ai-news-notifications/copilot.html"
-    assert not parts.query
-    assert parse_qs(parts.fragment) == {"prompt": [COPILOT_PROMPT.format(link=link)]}
-    assert not set(url) & set(" ()[]<>\"&")
-    assert url.count("#") == 1
+    assert parts.netloc == "github.com"
+    assert parts.path == "/copilot"
+    assert parse_qs(parts.query) == {"prompt": [COPILOT_PROMPT.format(link=link)]}
+    assert not parts.fragment
+    assert not set(url) & set(" ()[]<>\"&#")
