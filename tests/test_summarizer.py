@@ -150,20 +150,18 @@ def test_incomplete_http_read_uses_publisher_excerpt(backend, monkeypatch, caplo
     {"takeaway": "", "key_points": ["one", "two"]},
     {"takeaway": "T", "key_points": ["one", 2]},
     {"takeaway": "T", "key_points": ["one", "two"], "extra": "bad"},
-    {"takeaway": "word " * 59, "key_points": ["one", "two"]},
 ])
-def test_validate_summary_rejects_bad_shape_and_overlong_output(data):
+def test_validate_summary_rejects_bad_shape(data):
     with pytest.raises(ValueError):
         validate_summary(data)
 
 
-def test_validate_exact_sixty_word_boundary():
-    assert validate_summary({"takeaway": "word " * 58, "key_points": ["one", "two"]})
+def test_validate_summary_allows_more_than_sixty_words():
+    assert validate_summary({"takeaway": "word " * 59, "key_points": ["one", "two"]})
 
 
 @pytest.mark.parametrize("result", [
     response(finish="length"), response(refusal="Cannot summarize"),
-    response({"takeaway": "word " * 61, "key_points": ["one", "two"]}),
 ])
 def test_invalid_response_falls_back_explicitly_and_is_not_cached(backend, caplog, result):
     summarizer, _, _ = backend
@@ -172,6 +170,17 @@ def test_invalid_response_falls_back_explicitly_and_is_not_cached(backend, caplo
     assert value.summary_status == "unavailable"
     assert "Invalid AI summary" in caplog.text
     assert not summarizer.cache_dir.exists()
+
+
+def test_response_over_sixty_words_remains_an_ai_summary(backend):
+    summarizer, _, _ = backend
+    summarizer.client.chat.completions.create = lambda **_: response(
+        {"takeaway": "word " * 59, "key_points": ["one", "two"]}
+    )
+    result = summarizer.summarize(article())
+    assert result.summary_status == "ai"
+    assert result.summary == " ".join(["word"] * 59)
+    assert result.summary != "Publisher excerpt"
 
 
 def api_error(status, code=None, retry_after=None):
