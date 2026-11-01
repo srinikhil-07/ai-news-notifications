@@ -24,11 +24,9 @@ DEFAULT_MODEL = "gpt-5-nano"
 DEFAULT_INTERVAL_SECONDS = 60.0
 MAX_INPUT_CHARS = 24_000
 MIN_INPUT_WORDS = 80
-MAX_SUMMARY_WORDS = 60
-PROMPT_VERSION = "1"
+PROMPT_VERSION = "2"
 SYSTEM_PROMPT = """Summarize the supplied AI news article in plain text.
 Return a takeaway of one sentence and exactly two concise key points.
-The takeaway and both points combined MUST contain at most 60 whitespace-separated words.
 Use only facts in the supplied source. Preserve qualifications, benchmark conditions,
 limitations, and availability where relevant. Do not invent why it matters.
 If the source is partial, summarize only what is supplied.
@@ -54,8 +52,6 @@ def validate_summary(data: object) -> tuple[str, tuple[str, str]]:
     if any(not isinstance(value, str) or not value.strip() for value in [takeaway, *points]):
         raise ValueError("Summary fields must be nonempty strings")
     fields = [" ".join(value.split()) for value in [takeaway, *points]]
-    if sum(len(value.split()) for value in fields) > MAX_SUMMARY_WORDS:
-        raise ValueError("Summary exceeds 60 words")
     return fields[0], (fields[1], fields[2])
 
 
