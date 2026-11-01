@@ -35,9 +35,7 @@ rest of the digest is still built.
 
 ## Setup
 
-1. **Timezone:** in **Settings → Secrets and variables → Actions → Variables**, set
-   `DIGEST_TIMEZONE` to your [IANA timezone](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones),
-   e.g. `Asia/Kolkata` or `America/Los_Angeles`. If it isn't set, UTC is used.
+1. **Schedule:** the weekly digest runs Sunday at 01:00 India Standard Time (IST).
 2. **Get the issue emails:** in [GitHub notification settings](https://github.com/settings/notifications),
    make sure **Email** is turned on for "Participating, @mentions and custom". You're assigned to
    each issue, so this works even if you stop watching the repository.
@@ -47,11 +45,11 @@ rest of the digest is still built.
 4. **Test it:** open **Actions → AI News Digest → Run workflow** and choose `weekly` to open an
    issue right away. Manual runs don't affect the schedule.
 
-GitHub's scheduler only runs in UTC, so the workflow checks whether Sunday 08:00 in your timezone
-is due. Once a digest is delivered, it's committed to `digests/`, so each digest is sent exactly
-once. If a run is delayed or fails, the next scheduled run catches up. The weekly digest covers the
-previous Sunday 08:00 to this Sunday 08:00. If a period has no new posts, the digest is still
-committed but no issue is opened.
+GitHub's scheduler only runs in UTC, so the workflow starts at 19:30 UTC Saturday and checks
+whether Sunday 01:00 IST is due. Once a digest is delivered, it's committed to `digests/`, so each
+digest is sent exactly once. If a run is delayed or fails, the next scheduled run catches up. The
+weekly digest covers the previous Sunday 01:00 IST to this Sunday 01:00 IST. If a period has no
+new posts, the digest is still committed but no issue is opened.
 
 ## Concise article summaries
 
@@ -103,7 +101,7 @@ Manual runs intentionally create new issues and do not mark the scheduled digest
 pip install -r requirements.txt
 python -m news_aggregator --period weekly          # writes digests/weekly/YYYY-Www.md
 python -m news_aggregator --period daily --stdout  # generate a one-off daily digest for inspection
-python -m news_aggregator --period scheduled --timezone Asia/Kolkata --summarize  # weekly workflow
+python -m news_aggregator --period scheduled --timezone Asia/Kolkata --send-hour 1 --summarize  # weekly workflow
 python -m news_aggregator --period weekly --summarize  # requires OPENAI_API_KEY
 ```
 

@@ -1,14 +1,13 @@
 name: AI News Digest
 
-# GitHub cron only supports UTC, so the scheduled job runs once per week and
-# checks whether Sunday 08:00 in the DIGEST_TIMEZONE repository variable is due.
+# GitHub cron only supports UTC, so this runs at 19:30 UTC Saturday (01:00 Sunday IST).
 # Each digest with new posts is opened as a GitHub issue assigned to the repo
 # owner, which triggers a GitHub email notification.
 # Delivered digests are committed under digests/, which marks them as sent so
 # each digest goes out exactly once even if a run is delayed or retried.
 on:
   schedule:
-    - cron: "5 8 * * 0"
+    - cron: "30 19 * * 6"
   workflow_dispatch:
     inputs:
       period:
@@ -53,7 +52,7 @@ jobs:
         id: build
         env:
           PERIOD: ${{ inputs.period || 'scheduled' }}
-          DIGEST_TIMEZONE: ${{ vars.DIGEST_TIMEZONE || 'UTC' }}
+          DIGEST_TIMEZONE: Asia/Kolkata
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           OPENAI_MODEL: ${{ vars.OPENAI_MODEL || 'gpt-5-nano' }}
           SUMMARY_INTERVAL_SECONDS: ${{ vars.SUMMARY_INTERVAL_SECONDS || '60' }}
@@ -62,6 +61,7 @@ jobs:
           output_dir=digests
           if [ "$PERIOD" != "scheduled" ]; then output_dir="$RUNNER_TEMP/manual-digests"; fi
           python -m news_aggregator --period "$PERIOD" --output-dir "$output_dir" \
+            --send-hour 1 \
             --summarize --summary-model "$OPENAI_MODEL" \
             --summary-interval-seconds "$SUMMARY_INTERVAL_SECONDS"
 
