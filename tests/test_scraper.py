@@ -1,7 +1,12 @@
 from datetime import datetime, timezone
+from urllib.error import URLError
+from urllib.request import Request
+
+import pytest
 
 from news_aggregator.aggregator import Feed, scrape_feed
-from news_aggregator.scraper import extract_article, extract_links, parse_date
+from news_aggregator import scraper
+from news_aggregator.scraper import extract_article, extract_links, extract_text, parse_date
 
 from .test_aggregator import FIXTURES
 
@@ -59,6 +64,52 @@ def test_parse_date_formats():
     assert parse_date("2026-10-03T14:00:00+02:00") == datetime(2026, 10, 3, 12, tzinfo=timezone.utc)
     assert parse_date("not a date") is None
     assert parse_date("") is None
+
+
+@pytest.mark.parametrize(
+    "url",
+    (
+        "file:///etc/passwd",
+        "ftp://example.com/article",
+        "http://127.0.0.1/article",
+        "http://[::1]/article",
+    ),
+)
+def test_fetch_url_rejects_non_http_and_private_destinations(url):
+    with pytest.raises(URLError):
+        scraper.fetch_url(url, "test")
+
+
+def test_fetch_url_rejects_redirects_to_private_destinations():
+    handler = scraper._SafeRedirectHandler()
+    request = Request("https://example.com/article")
+    with pytest.raises(URLError):
+        handler.redirect_request(request, None, 302, "Found", {}, "http://127.0.0.1/")
+
+
+def test_fetch_url_allows_public_addresses(monkeypatch):
+    monkeypatch.setattr(
+        scraper.socket,
+        "getaddrinfo",
+        lambda *_args, **_kwargs: [(None, None, None, None, ("93.184.216.34", 443))],
+    )
+    scraper._validate_public_url("https://example.com/article")
+
+
+def test_extract_text_keeps_benchmark_tables_but_not_navigation_or_scripts():
+    text = "We evaluated our language model using a controlled benchmark. " * 30
+    page = f"""
+    <html><body><nav>Navigation link text</nav>
+      <article><h1>Evaluation results</h1><p>{text}</p>
+        <table><tr><th>Model</th><th>Score</th></tr>
+          <tr><td>Test model</td><td>92.7</td></tr></table>
+      </article><script>Secret script instruction</script>
+    </body></html>"""
+    extracted = extract_text(page)
+    assert "controlled benchmark" in extracted
+    assert "92.7" in extracted
+    assert "Navigation link text" not in extracted
+    assert "Secret script instruction" not in extracted
 
 
 def test_scrape_feed_builds_categorized_articles():

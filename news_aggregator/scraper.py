@@ -8,13 +8,18 @@ JSON-LD ``datePublished`` or ``<time datetime>``).
 
 from __future__ import annotations
 
+import ipaddress
 import json
 import re
+import socket
 import urllib.request
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from html.parser import HTMLParser
+from urllib.error import URLError
 from urllib.parse import urljoin, urlsplit, urlunsplit
+
+import trafilatura
 
 MAX_BYTES = 5 * 1024 * 1024
 TIMEOUT_SECONDS = 20
@@ -32,9 +37,38 @@ DATE_META_KEYS = (
 )
 
 
+def _validate_public_url(url: str) -> None:
+    try:
+        parts = urlsplit(url)
+        if (
+            parts.scheme.lower() not in ("http", "https")
+            or not parts.hostname
+            or parts.username is not None
+            or parts.password is not None
+        ):
+            raise ValueError("URL must use HTTP(S) and have no credentials")
+        port = parts.port or (443 if parts.scheme.lower() == "https" else 80)
+        addresses = {
+            ipaddress.ip_address(info[4][0])
+            for info in socket.getaddrinfo(parts.hostname, port, type=socket.SOCK_STREAM)
+        }
+    except (ValueError, socket.gaierror) as exc:
+        raise URLError(f"Unsafe or invalid URL: {url}") from exc
+    if not addresses or any(not address.is_global for address in addresses):
+        raise URLError(f"URL must resolve only to public addresses: {url}")
+
+
+class _SafeRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        _validate_public_url(newurl)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
 def fetch_url(url: str, user_agent: str) -> str:
+    _validate_public_url(url)
     request = urllib.request.Request(url, headers={"User-Agent": user_agent, "Accept": "text/html,*/*"})
-    with urllib.request.urlopen(request, timeout=TIMEOUT_SECONDS) as response:  # noqa: S310 - URLs come from config
+    opener = urllib.request.build_opener(_SafeRedirectHandler)
+    with opener.open(request, timeout=TIMEOUT_SECONDS) as response:
         charset = response.headers.get_content_charset() or "utf-8"
         return response.read(MAX_BYTES).decode(charset, errors="replace")
 
@@ -168,3 +202,10 @@ def extract_article(html: str) -> tuple[str, str, datetime | None]:
         if published:
             break
     return title, summary, published
+
+
+def extract_text(html: str) -> str:
+    """Extract article text and result tables without navigation or comments."""
+    return trafilatura.extract(
+        html, include_comments=False, include_tables=True, favor_precision=True
+    ) or ""

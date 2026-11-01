@@ -12,8 +12,8 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Iterable
-from urllib.parse import quote, urlsplit, urlunsplit
+from typing import Iterable, Literal
+from urllib.parse import urlsplit, urlunsplit
 
 import feedparser
 
@@ -44,6 +44,7 @@ RESEARCH_KEYWORDS = re.compile(
 )
 
 SUMMARY_MAX_CHARS = 280
+ISSUE_MAX_CHARS = 60_000
 
 FEED_TYPES = ("rss", "html")
 CATEGORIES = ("research", "product", "auto")
@@ -72,6 +73,9 @@ class Article:
     published: datetime
     summary: str = ""
     category: str = "product"
+    content: str = ""
+    key_points: tuple[str, ...] = ()
+    summary_status: Literal["publisher", "ai", "partial", "unavailable"] = "publisher"
 
 
 def load_feeds(path: str | Path) -> list[Feed]:
@@ -157,7 +161,17 @@ def parse_feed(feed: Feed, source) -> list[Article]:
         tags = _tags(entry)
         if not feed.ai_only and not is_ai_related(title, summary, tags):
             continue
-        articles.append(Article(feed.name, title, link, published, summary, classify(feed, title, summary, tags)))
+        content = "\n\n".join(
+            " ".join(item.get("value", "").split())
+            if item.get("type") == "text/plain"
+            else scraper.extract_text(f"<html><body><article>{item.get('value', '')}</article></body></html>")
+            for item in entry.get("content", [])
+            if item.get("type") in ("text/plain", "text/html", "application/xhtml+xml")
+        )
+        articles.append(Article(
+            feed.name, title, link, published, summary,
+            classify(feed, title, summary, tags), content=content,
+        ))
     return articles
 
 
@@ -172,7 +186,8 @@ def scrape_feed(feed: Feed, fetch=None) -> list[Article]:
     articles = []
     for link in links:
         try:
-            raw_title, raw_summary, published = scraper.extract_article(fetch(link))
+            page = fetch(link)
+            raw_title, raw_summary, published = scraper.extract_article(page)
         except Exception:  # noqa: BLE001 - skip broken article pages
             log.warning("Could not scrape article %s for %s", link, feed.name, exc_info=True)
             continue
@@ -183,7 +198,10 @@ def scrape_feed(feed: Feed, fetch=None) -> list[Article]:
             continue
         if not feed.ai_only and not is_ai_related(title, summary):
             continue
-        articles.append(Article(feed.name, title, link, published, summary, classify(feed, title, summary)))
+        articles.append(Article(
+            feed.name, title, link, published, summary, classify(feed, title, summary),
+            content=scraper.extract_text(page),
+        ))
     return articles
 
 
@@ -249,30 +267,19 @@ def _escape_md(text: str) -> str:
     return re.sub(r"([\[\]])", r"\\\1", text)
 
 
-COPILOT_CHAT_URL = "https://github.com/copilot"
-# Kept short: the link is repeated for ~100 articles in a 60 KB issue body.
-COPILOT_PROMPT = "Summarise {link}: key points and why it matters."
+def _summary_text(text: str) -> str:
+    # Treat generated prose as text, not issue Markdown, mentions, or HTML.
+    return html.escape(re.sub(r"([\\`*{}\[\]()#+.!_|>~-])", r"\\\1", text)).replace("@", "&#64;")
 
 
-def copilot_summary_url(link: str) -> str:
-    """Link that opens GitHub Copilot Chat with a prompt to summarise ``link``.
-
-    ``?prompt=`` is the deep link GitHub's own docs use. The model can't be
-    chosen through the URL, so Copilot Chat uses the reader's current model
-    selection (Auto by default).
-    """
-    return f"{COPILOT_CHAT_URL}?prompt={quote(COPILOT_PROMPT.format(link=link), safe=':/')}"
-
-
-def copilot_link_md(link: str) -> str:
-    return f"[✨ Summarise with Copilot]({copilot_summary_url(link)})"
-
-
-def render_markdown(articles: list[Article], period: str, now: datetime) -> str:
+def render_markdown(
+    articles: list[Article], period: str, now: datetime,
+    part: int | None = None, total_parts: int = 1,
+) -> str:
     start = now - PERIODS[period]
     title = "Daily" if period == "daily" else "Weekly"
     lines = [
-        f"# {title} AI News Digest",
+        f"# {title} AI News Digest" + (f" - Part {part} of {total_parts}" if part else ""),
         "",
         f"_{start:%Y-%m-%d %H:%M %Z} → {now:%Y-%m-%d %H:%M %Z} · {len(articles)} article(s)_",
         "",
@@ -280,13 +287,6 @@ def render_markdown(articles: list[Article], period: str, now: datetime) -> str:
     if not articles:
         lines.append("No new AI posts from the tracked blogs in this period.")
         return "\n".join(lines) + "\n"
-
-    lines.extend([
-        "> **iPhone / iPad:** If a Summarise with Copilot link opens an "
-        "'organization not found' error in GitHub Mobile, copy the link and "
-        "paste it into Safari's address bar. Sign in to GitHub there to use Copilot.",
-        "",
-    ])
 
     for category, heading in CATEGORY_TITLES.items():
         by_source: dict[str, list[Article]] = {}
@@ -301,8 +301,49 @@ def render_markdown(articles: list[Article], period: str, now: datetime) -> str:
             lines.append(f"### {source}")
             lines.append("")
             for article in by_source[source]:
-                lines.append(f"- [{_escape_md(article.title)}]({article.link}) — {article.published:%Y-%m-%d} · {copilot_link_md(article.link)}")
-                if article.summary:
-                    lines.append(f"  > {article.summary}")
+                lines.append(f"- [{_escape_md(article.title)}]({article.link}) — {article.published:%Y-%m-%d}")
+                if article.summary_status in ("ai", "partial"):
+                    label = "AI summary" if article.summary_status == "ai" else "AI summary (partial article)"
+                    lines.append(f"  **{label}:** {_summary_text(article.summary)}")
+                    for point in article.key_points:
+                        lines.append(f"  - {_summary_text(point)}")
+                elif article.summary:
+                    lines.append(f"  > **Publisher excerpt - full summary unavailable:** {_summary_text(article.summary)}")
+                else:
+                    lines.append("  > **Full summary unavailable.** Read the original article.")
             lines.append("")
     return "\n".join(lines)
+
+
+def render_markdown_parts(
+    articles: list[Article], period: str, now: datetime, max_chars: int = ISSUE_MAX_CHARS,
+) -> list[tuple[str, int]]:
+    """Split at article boundaries, counting the complete rendered Markdown."""
+    whole = render_markdown(articles, period, now)
+    if len(whole) <= max_chars:
+        return [(whole, len(articles))]
+    if not articles:
+        raise ValueError("Issue limit is too small for the digest header")
+
+    category_order = {category: index for index, category in enumerate(CATEGORY_TITLES)}
+    ordered = sorted(articles, key=lambda a: (category_order[a.category], a.source.lower(), -a.published.timestamp()))
+    groups: list[list[Article]] = []
+    current: list[Article] = []
+    # Reserve the longest possible part label before deciding boundaries.
+    for article in ordered:
+        candidate = current + [article]
+        if len(render_markdown(candidate, period, now, len(articles), len(articles))) > max_chars:
+            if not current:
+                raise ValueError(f"Article cannot fit in an issue: {article.link}")
+            groups.append(current)
+            current = [article]
+            if len(render_markdown(current, period, now, len(articles), len(articles))) > max_chars:
+                raise ValueError(f"Article cannot fit in an issue: {article.link}")
+        else:
+            current = candidate
+    if current:
+        groups.append(current)
+    return [
+        (render_markdown(group, period, now, index, len(groups)), len(group))
+        for index, group in enumerate(groups, 1)
+    ]
