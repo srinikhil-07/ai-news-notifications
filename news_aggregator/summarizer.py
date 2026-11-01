@@ -9,6 +9,7 @@ import math
 import time
 from dataclasses import replace
 from email.utils import parsedate_to_datetime
+from http.client import HTTPException
 from pathlib import Path
 from urllib.error import URLError
 
@@ -138,7 +139,7 @@ class Summarizer:
     def summarize(self, article: Article) -> Article:
         try:
             text = article.content or scraper.extract_text(scraper.fetch_url(article.link, USER_AGENT))
-        except (URLError, OSError, ValueError) as exc:
+        except (HTTPException, URLError, OSError, ValueError) as exc:
             log.warning("Full text unavailable for %s: %s", article.link, exc)
             return replace(article, summary_status="unavailable")
         if len(text.split()) < MIN_INPUT_WORDS:

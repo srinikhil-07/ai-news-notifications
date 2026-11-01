@@ -1,5 +1,6 @@
 import json
 from dataclasses import replace
+from http.client import IncompleteRead
 from types import SimpleNamespace
 from urllib.error import URLError
 
@@ -129,6 +130,19 @@ def test_unreadable_and_short_sources_do_not_call_api(backend, monkeypatch, capl
     assert not calls
     assert "Full text unavailable" in caplog.text
     assert "Insufficient article text" in caplog.text
+
+
+def test_incomplete_http_read_uses_publisher_excerpt(backend, monkeypatch, caplog):
+    summarizer, calls, _ = backend
+    monkeypatch.setattr(
+        module.scraper, "fetch_url",
+        lambda *_: (_ for _ in ()).throw(IncompleteRead(b"partial")),
+    )
+    result = summarizer.summarize(article(content=""))
+    assert result.summary_status == "unavailable"
+    assert result.summary == "Publisher excerpt"
+    assert not calls
+    assert "Full text unavailable" in caplog.text
 
 
 @pytest.mark.parametrize("data", [
