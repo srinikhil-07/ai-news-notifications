@@ -10,7 +10,8 @@ from datetime import datetime, time, timezone, tzinfo
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from .aggregator import PERIODS, digest_path, fetch_all, load_feeds, render_markdown, select_articles
+from .aggregator import PERIODS, digest_path, fetch_all, load_feeds, render_markdown_parts, select_articles
+from .summarizer import DEFAULT_INTERVAL_SECONDS, DEFAULT_MODEL, Summarizer
 
 WEEKDAYS = ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
 
@@ -69,6 +70,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--weekly-day", choices=WEEKDAYS, default="sunday",
                         help="Day the scheduled weekly digest is sent (default: sunday).")
     parser.add_argument("--stdout", action="store_true", help="Print the digest instead of writing a file.")
+    parser.add_argument("--summarize", action="store_true", help="Generate concise OpenAI summaries (requires OPENAI_API_KEY).")
+    parser.add_argument("--summary-model", default=DEFAULT_MODEL, help="OpenAI summary model (default: %(default)s).")
+    parser.add_argument("--summary-interval-seconds", type=float, default=DEFAULT_INTERVAL_SECONDS,
+                        help="Minimum seconds between OpenAI requests, including retries (default: %(default)s).")
+    parser.add_argument("--summary-cache", default=".summary-cache", help="Persistent summary cache directory.")
     args = parser.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
@@ -85,23 +91,42 @@ def main(argv: list[str] | None = None) -> int:
         _write_outputs([], 0)
         return 0
 
+    summarizer = None
+    if args.summarize:
+        try:
+            summarizer = Summarizer(
+                os.environ.get("OPENAI_API_KEY", ""), args.summary_cache,
+                args.summary_model, args.summary_interval_seconds,
+            )
+        except ValueError as exc:
+            parser.error(str(exc))
     all_articles = fetch_all(load_feeds(args.feeds))
     written: list[tuple[Path, int]] = []
     total = 0
     for period, window_end in jobs:
         articles = select_articles(all_articles, period, window_end)
-        markdown = render_markdown(articles, period, window_end)
+        if summarizer and articles:
+            logging.info("Summarizing %d selected article(s) with %s", len(articles), args.summary_model)
+            try:
+                articles = summarizer.summarize_all(articles)
+            except RuntimeError as exc:
+                logging.error("Digest not delivered: %s", exc)
+                return 1
+        parts = render_markdown_parts(articles, period, window_end)
         total += len(articles)
 
         if args.stdout:
-            sys.stdout.write(markdown)
+            for markdown, _ in parts:
+                sys.stdout.write(markdown)
             continue
 
-        path = digest_path(args.output_dir, period, window_end)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(markdown, encoding="utf-8")
-        written.append((path, len(articles)))
-        logging.info("Wrote %d article(s) to %s", len(articles), path)
+        base = digest_path(args.output_dir, period, window_end)
+        base.parent.mkdir(parents=True, exist_ok=True)
+        for index, (markdown, count) in enumerate(parts, 1):
+            path = base if index == 1 else base.with_name(f"{base.stem}-part-{index}.md")
+            path.write_text(markdown, encoding="utf-8")
+            written.append((path, count))
+            logging.info("Wrote %d article(s) to %s", count, path)
 
     _write_outputs(written, total)
     return 0

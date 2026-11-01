@@ -7,7 +7,8 @@ split into **Research** and **Product & Announcements** sections:
 - **Weekly** on Sunday at 08:00: posts from the previous 7 days.
 
 Each digest with new posts is opened as a GitHub **issue** (label `ai-news`) and assigned to the
-repository owner, so GitHub emails it to you.
+repository owner, so GitHub emails it to you. Articles have a concise takeaway and two key
+points generated with OpenAI, with clickable titles for reading the originals.
 
 ## Sources
 
@@ -40,7 +41,10 @@ rest of the digest is still built.
 2. **Get the issue emails:** in [GitHub notification settings](https://github.com/settings/notifications),
    make sure **Email** is turned on for "Participating, @mentions and custom". You're assigned to
    each issue, so this works even if you stop watching the repository.
-3. **Test it:** open **Actions → AI News Digest → Run workflow** and choose `weekly` to open an
+3. **OpenAI:** enable API billing or available credits in your OpenAI account, create an API key,
+   and store it as the repository Actions secret `OPENAI_API_KEY`. A ChatGPT subscription does
+   not include API usage, and slowing requests does **not** create a free API tier.
+4. **Test it:** open **Actions → AI News Digest → Run workflow** and choose `weekly` to open an
    issue right away. Manual runs don't affect the schedule.
 
 GitHub's scheduler only runs in UTC, so the workflow checks whether Sunday 08:00 in your timezone
@@ -49,31 +53,49 @@ once. If a run is delayed or fails, the next scheduled run catches up. The weekl
 previous Sunday 08:00 to this Sunday 08:00. If a period has no new posts, the digest is still
 committed but no issue is opened.
 
-## Summarise with Copilot
+## Concise article summaries
 
-Every article in the digest has a **✨ Summarise with Copilot** link. It opens
-[GitHub Copilot Chat](https://github.com/copilot) with a prompt asking for a summary of the
-article: key points and why it matters.
+The weekly job collects, filters, and deduplicates posts **before** making any model requests.
+It uses full RSS article content when supplied; otherwise it downloads the article and extracts
+readable text with Trafilatura. The title or publisher description alone is never used to
+generate an AI summary.
 
-- It runs on the Copilot plan of whoever clicks it. The repository calls no API and needs no key.
-- Issues can't show real buttons, so it's a link.
-- The link can't choose a model. Copilot Chat uses your current model picker selection, which is
-  **Auto** unless you changed it.
-- Copilot needs web access (Bing search) to read the article. Otherwise it may only answer from
-  the URL or the title.
+The default model is the inexpensive `gpt-5-nano`. Each summary has one takeaway sentence and
+exactly two key points, totaling **at most 60 words**, validated before rendering. Requests
+use structured JSON output, minimal reasoning, a 2,048-token completion limit (including
+reasoning tokens), and at most 24,000 source characters. Longer sources are explicitly labeled
+**AI summary (partial article)**. Article text is sent to OpenAI; API response storage is disabled.
+Do not configure feeds containing private or sensitive material.
 
-### iPhone and iPad
+Requests are sequential, starting at least **60 seconds apart**, including retries. Set repository
+Actions variables `OPENAI_MODEL` or `SUMMARY_INTERVAL_SECONDS` to override these defaults
+(interval must be at least 1 second; model must support Chat Completions, strict JSON schemas,
+and `minimal` reasoning). A hundred uncached readable articles takes roughly
+100 minutes plus fetch/request time; the workflow has a six-hour limit. Pacing helps with
+rate limits, not token costs. This uses ordinary API requests, **not** OpenAI's asynchronous
+Batch API: it avoids waiting up to 24 hours and publishes the digest in the same workflow.
+Check [OpenAI pricing](https://openai.com/api/pricing/) and your project's rate limits and
+billing budget before running.
 
-GitHub Mobile can interpret a Copilot link as an organization and show "organization not found."
-If this happens, copy the **Summarise with Copilot** link and paste it into **Safari's address bar**,
-then sign in to GitHub. Copy the summary link, not the article link, to preserve the prefilled prompt.
-Each new nonempty digest includes these fallback instructions; they also work for links in older issues.
+Successful summaries are cached in `.summary-cache/`, keyed by URL, title, full source hash,
+model, and prompt version. Actions restores and saves this cache, including after failed runs,
+so retries reuse completed summaries while changed articles are regenerated. The cache
+contains generated summaries, not API credentials or full article bodies, and is not committed.
+GitHub may evict old caches; in that case summaries are regenerated.
 
-GitHub also documents [managing Universal Links on iOS](https://docs.github.com/en/get-started/using-github/github-mobile#managing-universal-links-for-github-mobile-on-ios):
-long-press a GitHub link and choose **Open** to open subsequent GitHub links in Safari.
-Choose **Open in GitHub** to switch back. This preference affects other GitHub links too.
-Issue Markdown cannot force Safari or fix the GitHub app's internal routing, so the links retain
-GitHub's supported Copilot URL rather than relying on an alternate hostname or redirect service.
+Unreadable or very short sources, refused/incomplete responses, and invalid summaries show a
+clearly labeled publisher excerpt or **Full summary unavailable**, with warnings in the job log.
+Authentication, model-access, exhausted-quota, or persistent API failures stop delivery rather
+than silently publishing an entirely unsummarized digest. Transient connection errors,
+rate limits, and server errors get up to three retries with pacing and backoff.
+
+Issues are limited to **60,000 characters**, below GitHub's 65,536-character body limit.
+Oversized digests are split between complete articles into **Part 1 of N**, **Part 2 of N**, etc.
+The first file retains its usual name; subsequent files use `-part-2.md`, `-part-3.md`, etc.
+Every part preserves the Research/Product sections and original article links.
+Scheduled retries reuse issues with the same exact title, so a partially published digest
+does not create duplicate parts. Digests are committed only after every part is published.
+Manual runs intentionally create new issues and do not mark the scheduled digest as delivered.
 
 ## Usage
 
@@ -81,10 +103,13 @@ GitHub's supported Copilot URL rather than relying on an alternate hostname or r
 pip install -r requirements.txt
 python -m news_aggregator --period weekly          # writes digests/weekly/YYYY-Www.md
 python -m news_aggregator --period daily --stdout  # generate a one-off daily digest for inspection
-python -m news_aggregator --period scheduled --timezone Asia/Kolkata  # what the workflow runs
+python -m news_aggregator --period scheduled --timezone Asia/Kolkata --summarize  # weekly workflow
+python -m news_aggregator --period weekly --summarize  # requires OPENAI_API_KEY
 ```
 
 Options: `--send-hour` (default 8) and `--weekly-day` (default `sunday`) change the schedule.
+Local runs omit model calls unless `--summarize` is supplied. Summary options:
+`--summary-model`, `--summary-interval-seconds`, and `--summary-cache`.
 
 ## Tests
 

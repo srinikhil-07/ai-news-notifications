@@ -16,6 +16,8 @@ from email.utils import parsedate_to_datetime
 from html.parser import HTMLParser
 from urllib.parse import urljoin, urlsplit, urlunsplit
 
+import trafilatura
+
 MAX_BYTES = 5 * 1024 * 1024
 TIMEOUT_SECONDS = 20
 
@@ -168,3 +170,10 @@ def extract_article(html: str) -> tuple[str, str, datetime | None]:
         if published:
             break
     return title, summary, published
+
+
+def extract_text(html: str) -> str:
+    """Extract article text and result tables without navigation or comments."""
+    return trafilatura.extract(
+        html, include_comments=False, include_tables=True, favor_precision=True
+    ) or ""

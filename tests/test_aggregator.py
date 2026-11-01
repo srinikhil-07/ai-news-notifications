@@ -1,23 +1,21 @@
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
-from urllib.parse import parse_qs, urlsplit
 
 import pytest
 
 from news_aggregator import __main__ as cli
 from news_aggregator.aggregator import (
-    COPILOT_PROMPT,
     Article,
     Feed,
     classify,
     clean_text,
-    copilot_summary_url,
     digest_path,
     fetch_all,
     load_feeds,
     parse_feed,
     render_markdown,
+    render_markdown_parts,
     select_articles,
 )
 
@@ -80,6 +78,25 @@ def test_parse_feed_filters_non_ai_posts_for_general_blogs():
 def test_parse_atom():
     articles = parse_feed(Feed("Atom", "unused"), str(FIXTURES / "atom.xml"))
     assert [a.link for a in articles] == ["https://atom.example.com/diffusion"]
+
+
+@pytest.mark.parametrize("content_type", ["html", "text"])
+def test_parse_atom_retains_full_content_not_only_excerpt(content_type):
+    text = "The paper evaluates models in controlled experiments. " * 40
+    payload = f"""
+    <feed xmlns="http://www.w3.org/2005/Atom">
+      <title>Lab</title><id>https://example.com</id>
+      <entry><title>Research</title><id>https://example.com/paper</id>
+        <link href="https://example.com/paper"/>
+        <updated>2026-10-03T12:00:00Z</updated>
+        <summary>Publisher excerpt.</summary>
+        <content type="{content_type}">{text}</content>
+      </entry>
+    </feed>"""
+    article = parse_feed(Feed("Lab", "unused"), payload)[0]
+    assert article.summary == "Publisher excerpt."
+    assert len(article.content.split()) >= 80
+    assert "controlled experiments" in article.content
 
 
 def test_parse_feed_uses_timeout_for_http_sources(monkeypatch):
@@ -153,12 +170,11 @@ def test_render_markdown_groups_by_category_and_source():
     product = md.index("## Product & Announcements")
     assert research < md.index("[Paper]") < product
     assert product < md.index("### DeepMind", product) < md.index("[Launch]") < md.index("### OpenAI")
-    assert r"[New \[model\]](https://o.ai/a) — 2026-10-04 · [✨ Summarise with Copilot](https://github.com/copilot?prompt=Summarise%20https://o.ai/a:%20key%20points" in md
-    assert md.count("✨ Summarise with Copilot") == 3
-    assert "  > Summary" in md
-    assert md.count("**iPhone / iPad:**") == 1
-    assert md.index("**iPhone / iPad:**") < research
-    assert "copy the link and paste it into Safari's address bar" in md
+    assert r"[New \[model\]](https://o.ai/a) — 2026-10-04" in md
+    assert "Copilot" not in md
+    assert "Publisher excerpt - full summary unavailable:** Summary" in md
+    assert "Full summary unavailable." in md
+    assert "Safari" not in md
 
 
 def test_render_markdown_omits_empty_category():
@@ -221,17 +237,111 @@ def test_cli_writes_digest(tmp_path, monkeypatch):
     assert "article_count=3" in gh_output.read_text()
 
 
-@pytest.mark.parametrize("link", [
-    "https://example.com/post?id=1&ref=feed#top",
-    "https://example.com/a(b)[c]?q=AI+ML&name=café%20news",
-    'https://example.com/?q=<script>alert("x")</script>',
-])
-def test_copilot_summary_url_encodes_article_link(link):
-    url = copilot_summary_url(link)
-    parts = urlsplit(url)
-    assert parts.scheme == "https"
-    assert parts.netloc == "github.com"
-    assert parts.path == "/copilot"
-    assert parse_qs(parts.query) == {"prompt": [COPILOT_PROMPT.format(link=link)]}
-    assert not parts.fragment
-    assert not set(url) & set(" ()[]<>\"&#")
+def test_render_ai_summary_and_safe_plain_text():
+    article = Article(
+        "Lab", "Model", "https://example.com/post", NOW,
+        "A new model.", key_points=("Available today.", "<script>@owner **ignore**</script>"),
+        summary_status="ai",
+    )
+    md = render_markdown([article], "weekly", NOW)
+    assert "**AI summary:** A new model\\." in md
+    assert "  - Available today\\." in md
+    assert "<script>" not in md
+    assert "@owner" not in md
+    assert "Publisher excerpt" not in md
+
+
+def test_partial_article_label_is_rendered():
+    article = Article(
+        "Lab", "Post", "https://example.com/post", NOW,
+        "Takeaway", key_points=("One", "Two"), summary_status="partial",
+    )
+    assert "**AI summary (partial article):**" in render_markdown([article], "weekly", NOW)
+
+
+def test_render_parts_exact_character_limits_and_preserves_every_article():
+    articles = [
+        Article(
+            "Lab", f"Post {i}", f"https://example.com/{i}", NOW,
+            "漢" * 280, category="research" if i % 2 else "product",
+        )
+        for i in range(250)
+    ]
+    parts = render_markdown_parts(articles, "weekly", NOW)
+    assert len(parts) >= 2
+    assert sum(count for _, count in parts) == len(articles)
+    assert all(len(body) <= 60_000 for body, _ in parts)
+    combined = "".join(body for body, _ in parts)
+    assert all(combined.count(f"](https://example.com/{i})") == 1 for i in range(250))
+    for index, (body, _) in enumerate(parts, 1):
+        assert body.startswith(f"# Weekly AI News Digest - Part {index} of {len(parts)}")
+    # The limit counts Unicode characters, not UTF-8 bytes.
+    assert any(len(body.encode("utf-8")) > 60_000 for body, _ in parts)
+
+
+def test_render_parts_at_boundary_and_oversized_single_article():
+    article = Article("Lab", "Post", "https://example.com/a", NOW, "excerpt")
+    whole = render_markdown([article], "weekly", NOW)
+    assert render_markdown_parts([article], "weekly", NOW, len(whole)) == [(whole, 1)]
+    with pytest.raises(ValueError, match="cannot fit"):
+        render_markdown_parts([article], "weekly", NOW, len(whole) - 1)
+
+
+def test_cli_summarizes_after_selection_and_writes_all_parts(tmp_path, monkeypatch):
+    articles = [
+        Article("Lab", f"Post {i}", f"https://example.com/{i}", NOW, "漢" * 280)
+        for i in range(250)
+    ]
+    old = Article("Lab", "Old", "https://example.com/old", NOW.replace(year=2025))
+    calls = []
+
+    class FakeSummarizer:
+        def __init__(self, *args):
+            pass
+
+        def summarize_all(self, selected):
+            calls.extend(selected)
+            return selected
+
+    monkeypatch.setattr(cli, "Summarizer", FakeSummarizer)
+    monkeypatch.setattr(cli, "load_feeds", lambda _: [])
+    monkeypatch.setattr(cli, "fetch_all", lambda _: articles + [old, articles[0]])
+    output = tmp_path / "github_output"
+    monkeypatch.setenv("GITHUB_OUTPUT", str(output))
+    assert cli.main([
+        "--period", "weekly", "--now", NOW.isoformat(), "--summarize",
+        "--output-dir", str(tmp_path / "digests"),
+    ]) == 0
+    assert len(calls) == 250
+    paths = list((tmp_path / "digests" / "weekly").glob("*.md"))
+    assert len(paths) >= 2
+    assert (tmp_path / "digests" / "weekly" / "2026-W40-part-2.md").exists()
+    assert all(len(path.read_text()) <= 60_000 for path in paths)
+    outputs = dict(line.split("=", 1) for line in output.read_text().splitlines())
+    assert set(outputs["nonempty_digest_paths"].split()) == {str(path) for path in paths}
+    assert outputs["article_count"] == "250"
+
+
+def test_cli_api_failure_does_not_mark_digest_delivered(tmp_path, monkeypatch):
+    class FailedSummarizer:
+        def __init__(self, *args):
+            pass
+
+        def summarize_all(self, articles):
+            raise RuntimeError("quota exhausted")
+
+    monkeypatch.setattr(cli, "Summarizer", FailedSummarizer)
+    monkeypatch.setattr(cli, "load_feeds", lambda _: [])
+    monkeypatch.setattr(cli, "fetch_all", lambda _: [Article("A", "Post", "https://example.com/a", NOW)])
+    assert cli.main([
+        "--period", "weekly", "--now", NOW.isoformat(), "--summarize",
+        "--output-dir", str(tmp_path / "digests"),
+    ]) == 1
+    assert not list(tmp_path.rglob("*.md"))
+
+
+def test_cli_summary_key_is_required(tmp_path, monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    with pytest.raises(SystemExit) as error:
+        cli.main(["--period", "weekly", "--summarize", "--output-dir", str(tmp_path)])
+    assert error.value.code == 2

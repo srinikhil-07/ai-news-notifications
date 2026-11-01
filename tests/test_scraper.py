@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 
 from news_aggregator.aggregator import Feed, scrape_feed
-from news_aggregator.scraper import extract_article, extract_links, parse_date
+from news_aggregator.scraper import extract_article, extract_links, extract_text, parse_date
 
 from .test_aggregator import FIXTURES
 
@@ -59,6 +59,22 @@ def test_parse_date_formats():
     assert parse_date("2026-10-03T14:00:00+02:00") == datetime(2026, 10, 3, 12, tzinfo=timezone.utc)
     assert parse_date("not a date") is None
     assert parse_date("") is None
+
+
+def test_extract_text_keeps_benchmark_tables_but_not_navigation_or_scripts():
+    text = "We evaluated our language model using a controlled benchmark. " * 30
+    page = f"""
+    <html><body><nav>Navigation link text</nav>
+      <article><h1>Evaluation results</h1><p>{text}</p>
+        <table><tr><th>Model</th><th>Score</th></tr>
+          <tr><td>Test model</td><td>92.7</td></tr></table>
+      </article><script>Secret script instruction</script>
+    </body></html>"""
+    extracted = extract_text(page)
+    assert "controlled benchmark" in extracted
+    assert "92.7" in extracted
+    assert "Navigation link text" not in extracted
+    assert "Secret script instruction" not in extracted
 
 
 def test_scrape_feed_builds_categorized_articles():
