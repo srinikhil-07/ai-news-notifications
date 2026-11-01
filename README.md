@@ -4,7 +4,7 @@ built with agents to get ai news aggregated from ai tech company blogs
 Collects posts from AI blogs at big tech companies and AI startups and builds Markdown digests
 split into **Research** and **Product & Announcements** sections:
 
-- **Weekly** on Sunday at 08:00: posts from the previous 7 days.
+- **Weekly** starting Sunday at 01:00 IST (Asia/Kolkata): posts from the previous 7 days.
 
 Each digest with new posts is opened as a GitHub **issue** (label `ai-news`) and assigned to the
 repository owner, so GitHub emails it to you. Articles have a concise takeaway and two key
@@ -35,9 +35,8 @@ rest of the digest is still built.
 
 ## Setup
 
-1. **Timezone:** in **Settings → Secrets and variables → Actions → Variables**, set
-   `DIGEST_TIMEZONE` to your [IANA timezone](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones),
-   e.g. `Asia/Kolkata` or `America/Los_Angeles`. If it isn't set, UTC is used.
+1. **Timezone:** the workflow uses `Asia/Kolkata` and a Sunday 01:00 cutoff explicitly.
+   The repository `DIGEST_TIMEZONE` variable does not override this workflow schedule.
 2. **Get the issue emails:** in [GitHub notification settings](https://github.com/settings/notifications),
    make sure **Email** is turned on for "Participating, @mentions and custom". You're assigned to
    each issue, so this works even if you stop watching the repository.
@@ -47,10 +46,12 @@ rest of the digest is still built.
 4. **Test it:** open **Actions → AI News Digest → Run workflow** and choose `weekly` to open an
    issue right away. Manual runs don't affect the schedule.
 
-GitHub's scheduler only runs in UTC, so the workflow checks whether Sunday 08:00 in your timezone
-is due. Once a digest is delivered, it's committed to `digests/`, so each digest is sent exactly
+GitHub's scheduler only runs in UTC, so the workflow runs at Saturday 19:30 UTC,
+which is Sunday 01:00 IST, and checks whether that cutoff is due. GitHub may delay
+scheduled starts, and fetching and summarizing articles takes additional time before delivery.
+Once a digest is delivered, it's committed to `digests/`, so each digest is sent exactly
 once. If a run is delayed or fails, the next scheduled run catches up. The weekly digest covers the
-previous Sunday 08:00 to this Sunday 08:00. If a period has no new posts, the digest is still
+previous Sunday 01:00 IST to this Sunday 01:00 IST. If a period has no new posts, the digest is still
 committed but no issue is opened.
 
 ## Concise article summaries
@@ -103,11 +104,13 @@ Manual runs intentionally create new issues and do not mark the scheduled digest
 pip install -r requirements.txt
 python -m news_aggregator --period weekly          # writes digests/weekly/YYYY-Www.md
 python -m news_aggregator --period daily --stdout  # generate a one-off daily digest for inspection
-python -m news_aggregator --period scheduled --timezone Asia/Kolkata --summarize  # weekly workflow
+python -m news_aggregator --period scheduled --timezone Asia/Kolkata --send-hour 1 --summarize  # weekly workflow
 python -m news_aggregator --period weekly --summarize  # requires OPENAI_API_KEY
 ```
 
 Options: `--send-hour` (default 8) and `--weekly-day` (default `sunday`) change the schedule.
+Local runs use `--timezone`, or `DIGEST_TIMEZONE` if set, falling back to UTC.
+The workflow explicitly sets the timezone to `Asia/Kolkata` and `--send-hour 1`.
 Local runs omit model calls unless `--summarize` is supplied. Summary options:
 `--summary-model`, `--summary-interval-seconds`, and `--summary-cache`.
 
