@@ -1,6 +1,8 @@
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
+import pytest
+
 from news_aggregator import __main__ as cli
 from news_aggregator.aggregator import Article
 from news_aggregator.__main__ import due_periods
@@ -18,6 +20,40 @@ def test_nothing_due_before_send_hour(tmp_path):
 def test_weekly_due_on_sunday(tmp_path):
     jobs = due_periods(datetime(2026, 10, 4, 9, 5, tzinfo=TZ), tmp_path)
     assert jobs == [("weekly", SUNDAY_8)]
+
+
+@pytest.mark.parametrize(
+    ("utc_now", "due"),
+    [
+        ("2026-10-03T19:29:00+00:00", False),
+        ("2026-10-03T19:30:00+00:00", True),
+        ("2026-10-03T20:00:00+00:00", True),
+        ("2026-10-04T19:30:00+00:00", False),
+    ],
+)
+def test_sunday_1am_ist_schedule(tmp_path, utc_now, due):
+    now = datetime.fromisoformat(utc_now).astimezone(TZ)
+    jobs = due_periods(now, tmp_path, send_hour=1)
+    cutoff = datetime(2026, 10, 4, 1, 0, tzinfo=TZ)
+    assert jobs == ([("weekly", cutoff)] if due else [])
+
+
+def test_scheduled_cli_at_sunday_1am_ist(tmp_path, monkeypatch):
+    monkeypatch.setenv("DIGEST_TIMEZONE", "Asia/Kolkata")
+    args = [
+        "--period", "scheduled", "--send-hour", "1", "--weekly-day", "sunday",
+        "--feeds", str(_feeds(tmp_path)), "--output-dir", str(tmp_path / "d"),
+        "--now", "2026-10-03T19:29:00+00:00",
+    ]
+    weekly = tmp_path / "d" / "weekly" / "2026-W40.md"
+    assert cli.main(args) == 0
+    assert not weekly.exists()
+    assert cli.main(args[:-1] + ["2026-10-03T19:30:00+00:00"]) == 0
+    assert "IST" in weekly.read_text()
+    (weekly.parent / ".2026-W40.snapshot.json").unlink()
+    weekly.write_text("delivered")
+    assert cli.main(args[:-1] + ["2026-10-03T20:00:00+00:00"]) == 0
+    assert weekly.read_text() == "delivered"
 
 
 def test_no_weekly_digest_on_weekday(tmp_path):
